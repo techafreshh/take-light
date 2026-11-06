@@ -1,8 +1,18 @@
 import * as THREE from 'three';
 import { store } from './app/state';
+import { createFixedLoop } from './game/loop';
 
-// Walking-skeleton boot: renderer on the static canvas, a placeholder dusk
-// scene, store-driven MENU overlay, rAF loop, resize handling.
+// Boot: renderer on the static canvas, a placeholder dusk scene, the 60 Hz
+// fixed-step loop wired to the store, resize handling, and the dev overlay.
+// Game code never touches the DOM: all window/DOM mirroring lives here.
+
+declare global {
+  interface Window {
+    __TAKELIGHT_STATE__?: string;
+    __TAKELIGHT_TICK__?: number;
+    __TAKELIGHT_START__?: () => void;
+  }
+}
 
 function getCanvas(): HTMLCanvasElement {
   const canvas = document.querySelector<HTMLCanvasElement>('#game-canvas');
@@ -20,17 +30,39 @@ function getMenu(): HTMLElement {
   return menu;
 }
 
-function sizeRenderer(renderer: THREE.WebGLRenderer): void {
-  renderer.setSize(window.innerWidth, window.innerHeight, false);
+function getStartButton(): HTMLButtonElement {
+  const button = document.querySelector<HTMLButtonElement>('#start-btn');
+  if (button === null) {
+    throw new Error('take-light: missing button#start-btn');
+  }
+  return button;
+}
+
+function getOverlay(): HTMLElement {
+  const overlay = document.querySelector<HTMLElement>('#dev-overlay');
+  if (overlay === null) {
+    throw new Error('take-light: missing #dev-overlay');
+  }
+  return overlay;
+}
+
+function sizeRenderer(
+  renderer: THREE.WebGLRenderer,
+  camera: THREE.PerspectiveCamera,
+): void {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
 }
 
 function boot(): void {
   const canvas = getCanvas();
   const menu = getMenu();
+  const startButton = getStartButton();
+  const overlay = getOverlay();
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  sizeRenderer(renderer);
 
   // Placeholder dusk scene: deep indigo clear color, one emissive marker
   // mesh, one warm directional light plus ambient fill.
@@ -45,6 +77,7 @@ function boot(): void {
   );
   camera.position.set(0, 6, 10);
   camera.lookAt(0, 0, 0);
+  sizeRenderer(renderer, camera);
 
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(1.5, 1.5, 1.5),
@@ -62,23 +95,54 @@ function boot(): void {
   scene.add(sun);
   scene.add(new THREE.AmbientLight(0x8f7bff, 0.5));
 
+  // Fixed-step sim: one deterministic quantum per tick, mesh advanced by a
+  // constant increment. Variable-rate render every animation frame.
+  let lastOverlayMs = -250;
+  const loop = createFixedLoop(
+    () => {
+      mesh.rotation.y += 0.02;
+      mesh.rotation.x += 0.007;
+    },
+    () => {
+      window.__TAKELIGHT_TICK__ = loop.getTick();
+      const now = performance.now();
+      if (now - lastOverlayMs >= 250) {
+        lastOverlayMs = now;
+        overlay.textContent = `fps: ${loop.getFps()} tick: ${loop.getTick()}`;
+      }
+      renderer.render(scene, camera);
+    },
+    () => store.get() === 'RUNNING',
+  );
+
   // UI reflects the store; scene code never touches the DOM.
   store.subscribe((state) => {
     menu.dataset.state = state;
     menu.style.display = state === 'MENU' ? 'flex' : 'none';
+    window.__TAKELIGHT_STATE__ = state;
+    if (state === 'RUNNING') {
+      loop.resetTick();
+      window.__TAKELIGHT_TICK__ = 0;
+    }
   });
-  store.set('MENU');
+
+  startButton.addEventListener('click', () => {
+    store.set('RUNNING');
+  });
+  window.__TAKELIGHT_START__ = () => {
+    store.set('RUNNING');
+  };
 
   window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    sizeRenderer(renderer);
+    sizeRenderer(renderer, camera);
   });
 
-  renderer.setAnimationLoop(() => {
-    mesh.rotation.y += 0.01;
-    mesh.rotation.x += 0.004;
-    renderer.render(scene, camera);
+  window.__TAKELIGHT_STATE__ = 'MENU';
+  window.__TAKELIGHT_TICK__ = 0;
+  store.set('MENU');
+
+  renderer.setAnimationLoop((time) => {
+    loop.frame(time);
   });
 }
 

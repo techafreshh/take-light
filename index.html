@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>take-light — neon-dusk jetpack arena</title>
+    <link rel="icon" href="data:," />
     <style>
       html,
       body {
@@ -48,6 +49,31 @@
         font-size: 1.25rem;
         letter-spacing: 0.4em;
       }
+      #menu button {
+        pointer-events: auto;
+        margin-top: 1rem;
+        padding: 0.75rem 2.5rem;
+        font-size: 1.1rem;
+        letter-spacing: 0.2em;
+        color: #14102a;
+        background: #ffd166;
+        border: none;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      #dev-overlay {
+        position: fixed;
+        top: 8px;
+        left: 8px;
+        z-index: 10;
+        padding: 4px 8px;
+        color: #9ef0c8;
+        background: rgba(10, 6, 24, 0.65);
+        border-radius: 4px;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        pointer-events: none;
+      }
     </style>
   </head>
   <body>
@@ -56,7 +82,9 @@
       <div id="menu" data-state="BOOT">
         <h1>take-light</h1>
         <p>MENU</p>
+        <button id="start-btn" type="button">Start</button>
       </div>
+      <div id="dev-overlay">fps: 0 tick: 0</div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
