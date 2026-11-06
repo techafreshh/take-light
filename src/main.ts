@@ -86,8 +86,15 @@ import {
   toPickupProbe,
   updatePickups,
 } from './game/pickups';
-import { bulletHitsEnemy, damageEnemy } from './game/combat';
+import { bulletHitsEnemy, damageEnemy, isGraze } from './game/combat';
 import { takeHit } from './game/player';
+import {
+  awardKill,
+  createScore,
+  registerGraze,
+  resetScore,
+  updateScore,
+} from './game/score';
 
 // Boot: renderer on the static canvas, the dusk arena with the hover
 // player, the pooled railgun tracers, the 60 Hz fixed-step loop wired to
@@ -143,7 +150,10 @@ declare global {
     __TAKELIGHT_SCORE__?: {
       kills: number;
       score: number;
+      multiplier: number;
     };
+    __TAKELIGHT_HIT__?: () => number;
+    __TAKELIGHT_GRAZE__?: () => number;
   }
 }
 
@@ -230,9 +240,10 @@ function boot(): void {
   const enemies = createEnemyManager(scene, ENEMY_CAPACITY, createOkadaMesh);
   const orbs = createOrbField(scene);
   const pickups = createPickupField(scene);
-  let kills = 0;
-  let score = 0;
+  const scoreState = createScore();
   let sawTelegraph = false;
+  // Live graze auto-detect throttle: at most one registration per window.
+  let grazeCooldownMsLeft = 0;
   let lastTelegraphMs = 0;
   function bountyFor(kind: string): number {
     if (kind === 'areaboy') {
@@ -244,8 +255,7 @@ function boot(): void {
     return OKADA_SCORE;
   }
   function handleKill(enemy: Enemy): void {
-    kills += 1;
-    score += bountyFor(enemy.kind);
+    awardKill(scoreState, bountyFor(enemy.kind));
     if (enemy.kind === 'carrier') {
       spawnPickup(pickups, enemy.x, enemy.z, 'shield');
     }
@@ -344,6 +354,31 @@ function boot(): void {
     return tryDash(player, dirX, dirZ);
   }
 
+  // Debug/acceptance hooks: damage goes only through takeHit so dash
+  // i-frames keep negating it; graze goes only through registerGraze.
+  // Both no-op when not RUNNING and refresh their probe immediately.
+  function triggerHit(): number {
+    if (store.get() !== 'RUNNING') {
+      return player.shields;
+    }
+    takeHit(player);
+    window.__TAKELIGHT_PLAYER__ = toPlayerSnapshot(player);
+    return player.shields;
+  }
+
+  function triggerGraze(): number {
+    if (store.get() !== 'RUNNING') {
+      return scoreState.multiplier;
+    }
+    registerGraze(scoreState);
+    window.__TAKELIGHT_SCORE__ = {
+      kills: scoreState.kills,
+      score: scoreState.score,
+      multiplier: scoreState.multiplier,
+    };
+    return scoreState.multiplier;
+  }
+
   // Fixed-step sim with variable-rate render every animation frame.
   let lastOverlayMs = -250;
   const loop = createFixedLoop(
@@ -401,6 +436,11 @@ function boot(): void {
         onFire,
       );
       updateOrbs(orbs, stepMs);
+      // Multiplier decay ticks once per sim step; only grazes refresh it.
+      updateScore(scoreState, stepMs);
+      if (grazeCooldownMsLeft > 0) {
+        grazeCooldownMsLeft = Math.max(0, grazeCooldownMsLeft - stepMs);
+      }
       // Slow orbs wound on the flat plane; spent orbs retire on hit.
       for (let i = orbs.live.length - 1; i >= 0; i -= 1) {
         const orb = orbs.live[i];
@@ -419,6 +459,21 @@ function boot(): void {
             orb.mesh.visible = false;
           }
           orbs.pool.release(orb);
+        }
+      }
+      // Live graze auto-detect: one registration per 300 ms max while any
+      // live orb sits in the near-miss band. Damage stays via takeHit.
+      if (grazeCooldownMsLeft <= 0) {
+        for (const orb of orbs.live) {
+          if (
+            orb !== undefined &&
+            orb.active &&
+            isGraze(orb.x, orb.z, player.pos.x, player.pos.z)
+          ) {
+            registerGraze(scoreState);
+            grazeCooldownMsLeft = 300;
+            break;
+          }
         }
       }
       updatePickups(pickups, player.pos, player, stepMs);
@@ -490,7 +545,7 @@ function boot(): void {
         active: enemies.live.length,
         sawTelegraph,
         lastTelegraphMs,
-        kills,
+        kills: scoreState.kills,
         list: enemies.live.map(toEnemySnapshot),
         types: Array.from(new Set(enemies.live.map((enemy) => enemy.kind))).sort(),
         burstCount: enemies.live.reduce(
@@ -499,8 +554,14 @@ function boot(): void {
         ),
       };
       window.__TAKELIGHT_PICKUPS__ = toPickupProbe(pickups);
-      window.__TAKELIGHT_SCORE__ = { kills, score };
+      window.__TAKELIGHT_SCORE__ = {
+        kills: scoreState.kills,
+        score: scoreState.score,
+        multiplier: scoreState.multiplier,
+      };
       window.__TAKELIGHT_DASH__ = triggerDash;
+      window.__TAKELIGHT_HIT__ = triggerHit;
+      window.__TAKELIGHT_GRAZE__ = triggerGraze;
       const now = performance.now();
       if (now - lastOverlayMs >= 250) {
         lastOverlayMs = now;
@@ -535,8 +596,8 @@ function boot(): void {
       clearEnemies(enemies);
       clearOrbs(orbs);
       clearPickups(pickups);
-      kills = 0;
-      score = 0;
+      resetScore(scoreState);
+      grazeCooldownMsLeft = 0;
       sawTelegraph = false;
       lastTelegraphMs = 0;
       prevDashHeld = false;
@@ -630,8 +691,14 @@ function boot(): void {
     burstCount: 0,
   };
   window.__TAKELIGHT_PICKUPS__ = { active: 0, list: [] };
-  window.__TAKELIGHT_SCORE__ = { kills: 0, score: 0 };
+  window.__TAKELIGHT_SCORE__ = {
+    kills: scoreState.kills,
+    score: scoreState.score,
+    multiplier: scoreState.multiplier,
+  };
   window.__TAKELIGHT_DASH__ = triggerDash;
+  window.__TAKELIGHT_HIT__ = triggerHit;
+  window.__TAKELIGHT_GRAZE__ = triggerGraze;
   store.set('MENU');
 
   renderer.setAnimationLoop((time) => {
