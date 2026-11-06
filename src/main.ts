@@ -17,8 +17,9 @@ import { createArenaScene, configureRenderer, capDpr } from './game/scene';
 import { clampPan, createAudioBank, playSfx, toAudioProbe, unlockAudio } from './game/audio';
 import { createPostFX, type PostFX } from './game/postfx';
 import { mountEffects, spawnDamageNumber, spawnHitMarker } from './ui/effects';
-import { PYLON_COUNT } from './game/props';
-import { createFixedLoop, consumeHitstop, createHitstop, triggerHitstop } from './game/loop';
+import { PYLON_COUNT, updateDanfoTraffic } from './game/props';
+import { getAssetModels, readHeapBytes } from './game/assets';
+import { STEP_MS, createFixedLoop, consumeHitstop, createHitstop, triggerHitstop } from './game/loop';
 import {
   EMPTY_INPUT,
   mergeInput,
@@ -188,6 +189,10 @@ declare global {
     };
     __TAKELIGHT_HIT__?: () => number;
     __TAKELIGHT_GRAZE__?: () => number;
+    __TAKELIGHT_ASSETS__?: {
+      models: string[];
+    };
+    __TAKELIGHT_HEAP__?: () => number;
     __TAKELIGHT_GAMEOVER__?: () => void;
   }
 }
@@ -238,9 +243,13 @@ function boot(): void {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   configureRenderer(renderer);
 
-  // Low-poly dusk arena: water, highway, pylons, dusk lights and fog.
-  // The live light handles feed the wave-driven blackout curve.
-  const { scene, lights } = createArenaScene();
+  // Low-poly dusk arena: water, highway, pylons, danfo traffic, dusk
+  // lights and fog. The live light handles feed the wave-driven
+  // blackout curve; the vendored dusk equirect compiles to a PMREM
+  // environment once (lights carry headless/probe-safe fallback).
+  const arena = createArenaScene();
+  const { scene, lights, traffic } = arena;
+  arena.applyDuskEnvironment(renderer);
   let currentWave = 1;
   let currentLight = blackoutForWave(currentWave);
 
@@ -564,6 +573,9 @@ function boot(): void {
       if (consumeHitstop(hitstop, stepMs)) {
         return;
       }
+      // Danfo traffic cruises on the same fixed quantum (render does no
+      // traffic work: matrices are already current from this step).
+      updateDanfoTraffic(traffic, STEP_MS);
       const input = readFrame();
       if (input.dash && !prevDashHeld) {
         let dirX = input.moveX;
@@ -955,6 +967,10 @@ function boot(): void {
   window.__TAKELIGHT_GRAZE__ = triggerGraze;
   window.__TAKELIGHT_AUDIO__ = toAudioProbe(audioBank);
   window.__TAKELIGHT_HITSTOP__ = 0;
+  // Asset + heap probes: published synchronously at boot so the 2000 ms
+  // RUNNING window sees them; the heap hook reads live bytes every call.
+  window.__TAKELIGHT_ASSETS__ = { models: getAssetModels() };
+  window.__TAKELIGHT_HEAP__ = () => readHeapBytes();
   store.set('MENU');
 
   renderer.setAnimationLoop((time) => {

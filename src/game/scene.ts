@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { createPylons } from './props';
+import { createDanfoTraffic, createPylons, type DanfoTraffic } from './props';
+import { DUSK_EQUIRECT_URL } from './assets';
 
 // Low-poly dusk arena: blue water plane, dark highway strip, instanced
 // pylons, warm dusk lights, indigo background with matching fog.
@@ -28,7 +29,42 @@ export interface Arena {
   water: THREE.Mesh;
   highway: THREE.Mesh;
   pylons: THREE.InstancedMesh;
+  traffic: DanfoTraffic;
   lights: ArenaLights;
+  /** Fire-and-forget PMREM dusk environment; lights carry a fallback. */
+  applyDuskEnvironment(renderer: THREE.WebGLRenderer): void;
+}
+
+/**
+ * Load the vendored dusk equirect once and install it as the PMREM
+ * environment. Any failure (headless GL, missing file) keeps the
+ * hemisphere/sun/ambient lights as the look — never throws.
+ */
+function loadDuskEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRenderer): void {
+  try {
+    const loader = new THREE.TextureLoader();
+    loader.load(
+      DUSK_EQUIRECT_URL,
+      (texture) => {
+        try {
+          texture.mapping = THREE.EquirectangularReflectionMapping;
+          texture.colorSpace = THREE.SRGBColorSpace;
+          const pmrem = new THREE.PMREMGenerator(renderer);
+          scene.environment = pmrem.fromEquirectangular(texture).texture;
+          texture.dispose();
+          pmrem.dispose();
+        } catch {
+          // Keep the lights-only fallback.
+        }
+      },
+      undefined,
+      () => {
+        // Keep the lights-only fallback.
+      },
+    );
+  } catch {
+    // Headless/probe-safe: TextureLoader needs DOM Image support.
+  }
 }
 
 export function createArenaScene(): Arena {
@@ -65,11 +101,15 @@ export function createArenaScene(): Arena {
   scene.add(pylons);
   const pylonEmissive = pylons.material as THREE.MeshStandardMaterial;
 
+  const traffic = createDanfoTraffic();
+  scene.add(traffic.mesh);
+
   return {
     scene,
     water,
     highway,
     pylons,
+    traffic,
     lights: {
       hemi: hemisphere,
       sun,
@@ -79,6 +119,9 @@ export function createArenaScene(): Arena {
       sunBase: sun.intensity,
       ambientBase: ambient.intensity,
       pylonBase: pylonEmissive.emissiveIntensity,
+    },
+    applyDuskEnvironment(renderer: THREE.WebGLRenderer): void {
+      loadDuskEnvironment(scene, renderer);
     },
   };
 }
