@@ -1,8 +1,13 @@
-// Minimal flat-plane combat stub: XZ hit checks plus the shared
-// damage/kill helper. No orbs, no graze, no scoring math — those belong
-// to a later issue. Y is always ignored: sim and bullets fly at HOVER_Y.
+// Flat-plane combat geometry: XZ hit checks, orb-vs-player discs, graze
+// band, plus the shared damage/kill helper. Scoring math lives in
+// score.ts. Y is always ignored: sim and bullets fly at HOVER_Y.
 
 import type { Enemy } from './enemy';
+
+/** Near-miss outer edge: graze band is (hitRadius, GRAZE_RADIUS]. */
+export const GRAZE_RADIUS = 1.5;
+/** Flat-plane hit disc for orb-vs-player checks (mirrors orb tuning). */
+export const ORB_HIT_RADIUS = 0.6;
 
 /** Squared flat-plane distance; the only geometry the sim uses. */
 export function flatDistSq(
@@ -46,6 +51,36 @@ export function damageEnemy(enemy: Enemy, amount: number): boolean {
     return true;
   }
   return false;
+}
+
+/** Strict XZ disc check for one orb against the player. */
+export function orbHitsPlayer(
+  orbX: number,
+  orbZ: number,
+  playerX: number,
+  playerZ: number,
+  radius: number = ORB_HIT_RADIUS,
+): boolean {
+  const r = Math.max(radius, 0);
+  const dx = orbX - playerX;
+  const dz = orbZ - playerZ;
+  return dx * dx + dz * dz <= r * r;
+}
+
+/**
+ * Near-miss check: true exactly when hitRadius < dist <= GRAZE_RADIUS.
+ * True hits never count as grazes; beyond the outer edge is a clean miss.
+ */
+export function isGraze(
+  orbX: number,
+  orbZ: number,
+  playerX: number,
+  playerZ: number,
+  hitRadius: number = ORB_HIT_RADIUS,
+): boolean {
+  const distSq = flatDistSq(orbX, orbZ, playerX, playerZ);
+  const inner = Math.max(hitRadius, 0);
+  return distSq > inner * inner && distSq <= GRAZE_RADIUS * GRAZE_RADIUS;
 }
 
 /** First alive enemy whose disc contains (x, z); dead slots are skipped. */
