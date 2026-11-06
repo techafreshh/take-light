@@ -4,7 +4,14 @@ import { CAMERA_PITCH_DEG, createFollowCamera, updateFollowCamera } from './game
 import { createArenaScene, configureRenderer } from './game/scene';
 import { PYLON_COUNT } from './game/props';
 import { createFixedLoop } from './game/loop';
-import { sampleKeyboard } from './game/input';
+import {
+  EMPTY_INPUT,
+  mergeInput,
+  sampleKeyboard,
+  sampleMouseAim,
+  type InputFrame,
+} from './game/input';
+import { createTouchStickState, mountSticks } from './ui/sticks';
 import {
   createPlayer,
   createPlayerMesh,
@@ -40,6 +47,7 @@ declare global {
       shields: number;
     };
     __TAKELIGHT_DASH__?: () => boolean;
+    __TAKELIGHT_INPUT__?: InputFrame;
   }
 }
 
@@ -109,9 +117,26 @@ function boot(): void {
   syncPlayerMesh(playerMesh, player);
   updateFollowCamera(camera, player.pos);
 
-  // Keyboard drive: held codes sampled fresh every sim step.
+  // Desktop drive: held codes plus hold-fire (button 0) and the last
+  // cursor position, sampled fresh every sim step and every render.
   const pressedKeys = new Set<string>();
+  let mouseDown = false;
+  let lastMouseX = 0;
+  let lastMouseY = 0;
+  let hasMousePos = false;
   let prevDashHeld = false;
+  // Touch drive: twin sticks + dash button mutate this frame in place.
+  const touch = createTouchStickState();
+  mountSticks(touch);
+  let currentFrame: InputFrame = { ...EMPTY_INPUT };
+  function readFrame(): InputFrame {
+    const keyboard = sampleKeyboard(pressedKeys);
+    const rect = canvas.getBoundingClientRect();
+    const mouseAim = hasMousePos
+      ? sampleMouseAim(lastMouseX, lastMouseY, rect)
+      : { x: 0, y: 0 };
+    return mergeInput(keyboard, mouseAim, mouseDown, touch);
+  }
   window.addEventListener('keydown', (event) => {
     if (
       event.code === 'Space' ||
@@ -127,15 +152,32 @@ function boot(): void {
   window.addEventListener('keyup', (event) => {
     pressedKeys.delete(event.code);
   });
+  window.addEventListener('mousemove', (event) => {
+    lastMouseX = event.clientX;
+    lastMouseY = event.clientY;
+    hasMousePos = true;
+  });
+  window.addEventListener('mousedown', (event) => {
+    if (event.button === 0) {
+      mouseDown = true;
+    }
+  });
+  window.addEventListener('mouseup', (event) => {
+    if (event.button === 0) {
+      mouseDown = false;
+    }
+  });
   window.addEventListener('blur', () => {
     pressedKeys.clear();
+    mouseDown = false;
     prevDashHeld = false;
   });
 
   function triggerDash(): boolean {
-    const input = sampleKeyboard(pressedKeys);
+    const input = readFrame();
+    currentFrame = input;
     let dirX = input.moveX;
-    let dirZ = -input.moveY;
+    let dirZ = input.moveY;
     if (dirX === 0 && dirZ === 0) {
       dirX = player.headingX;
       dirZ = player.headingZ;
@@ -147,17 +189,18 @@ function boot(): void {
   let lastOverlayMs = -250;
   const loop = createFixedLoop(
     (stepMs) => {
-      const input = sampleKeyboard(pressedKeys);
-      if (input.dashPressed && !prevDashHeld) {
+      const input = readFrame();
+      currentFrame = input;
+      if (input.dash && !prevDashHeld) {
         let dirX = input.moveX;
-        let dirZ = -input.moveY;
+        let dirZ = input.moveY;
         if (dirX === 0 && dirZ === 0) {
           dirX = player.headingX;
           dirZ = player.headingZ;
         }
         tryDash(player, dirX, dirZ);
       }
-      prevDashHeld = input.dashPressed;
+      prevDashHeld = input.dash;
       updatePlayer(player, input, stepMs);
     },
     () => {
@@ -165,6 +208,8 @@ function boot(): void {
       updateFollowCamera(camera, player.pos);
       window.__TAKELIGHT_TICK__ = loop.getTick();
       // Probe contracts refreshed every frame, never throttled.
+      currentFrame = readFrame();
+      window.__TAKELIGHT_INPUT__ = { ...currentFrame };
       window.__TAKELIGHT_PLAYER__ = toPlayerSnapshot(player);
       window.__TAKELIGHT_DASH__ = triggerDash;
       const now = performance.now();
@@ -215,6 +260,7 @@ function boot(): void {
   window.__TAKELIGHT_STATE__ = 'MENU';
   window.__TAKELIGHT_TICK__ = 0;
   window.__TAKELIGHT_PLAYER__ = toPlayerSnapshot(player);
+  window.__TAKELIGHT_INPUT__ = { ...EMPTY_INPUT };
   window.__TAKELIGHT_DASH__ = triggerDash;
   store.set('MENU');
 
