@@ -49,6 +49,7 @@ import {
   syncEnemyMeshes,
   toEnemySnapshot,
   updateEnemies,
+  type Enemy,
   type EnemySnapshot,
 } from './game/enemy';
 import {
@@ -56,7 +57,37 @@ import {
   OKADA_SCORE,
   createOkadaMesh,
 } from './game/enemies/okada';
-import { damageEnemy, tryHitEnemy } from './game/combat';
+import {
+  AREABOY_PARAMS,
+  AREABOY_SCORE,
+  BURST_SIZE,
+  createAreaboyMesh,
+} from './game/enemies/areaboy';
+import {
+  CARRIER_PARAMS,
+  CARRIER_SCORE,
+  SPREAD_COUNT,
+  createCarrierMesh,
+} from './game/enemies/carrier';
+import {
+  clearOrbs,
+  createOrbField,
+  fireAreaboyBurst,
+  fireCarrierSpread,
+  orbHitsPlayer,
+  syncOrbMeshes,
+  updateOrbs,
+} from './game/enemies/orbs';
+import {
+  clearPickups,
+  createPickupField,
+  spawnPickup,
+  syncPickupMeshes,
+  toPickupProbe,
+  updatePickups,
+} from './game/pickups';
+import { bulletHitsEnemy, damageEnemy } from './game/combat';
+import { takeHit } from './game/player';
 
 // Boot: renderer on the static canvas, the dusk arena with the hover
 // player, the pooled railgun tracers, the 60 Hz fixed-step loop wired to
@@ -95,12 +126,19 @@ declare global {
     __TAKELIGHT_FORCE_FIRE__?: boolean;
     __TAKELIGHT_SET_FIRING__?: (on: boolean) => void;
     __TAKELIGHT_SPAWN__?: (kind: string) => number;
+    __TAKELIGHT_KILL__?: (kind: string) => number;
     __TAKELIGHT_ENEMIES__?: {
       active: number;
       sawTelegraph: boolean;
       lastTelegraphMs: number;
       kills: number;
       list: EnemySnapshot[];
+      types: string[];
+      burstCount: number;
+    };
+    __TAKELIGHT_PICKUPS__?: {
+      active: number;
+      list: { kind: string; x: number; z: number }[];
     };
     __TAKELIGHT_SCORE__?: {
       kills: number;
@@ -185,17 +223,46 @@ function boot(): void {
   const onFire: () => void = () => {};
   const cameraTarget = new THREE.Vector3();
 
-  // Okada rusher pool: preallocated groups through the shared FSM base,
-  // stepped on the same fixed quantum; real SFX lands in a later issue
-  // so the telegraph hook only latches the probe flag (no-op for audio).
+  // Shared roster pool: one manager (capacity 16) serves okada, areaboy
+  // and carrier through per-kind mesh overrides; stepped on the same
+  // fixed quantum; real SFX lands in a later issue so the telegraph
+  // hook only latches the probe flag (no-op for audio).
   const enemies = createEnemyManager(scene, ENEMY_CAPACITY, createOkadaMesh);
+  const orbs = createOrbField(scene);
+  const pickups = createPickupField(scene);
   let kills = 0;
   let score = 0;
   let sawTelegraph = false;
   let lastTelegraphMs = 0;
+  function bountyFor(kind: string): number {
+    if (kind === 'areaboy') {
+      return AREABOY_SCORE;
+    }
+    if (kind === 'carrier') {
+      return CARRIER_SCORE;
+    }
+    return OKADA_SCORE;
+  }
+  function handleKill(enemy: Enemy): void {
+    kills += 1;
+    score += bountyFor(enemy.kind);
+    if (enemy.kind === 'carrier') {
+      spawnPickup(pickups, enemy.x, enemy.z, 'shield');
+    }
+    releaseEnemy(enemies, enemy);
+  }
   const enemyHooks = {
     onTelegraph: () => {
       sawTelegraph = true;
+    },
+    onBurstStart: (enemy: Enemy) => {
+      if (enemy.kind === 'areaboy') {
+        fireAreaboyBurst(orbs, enemy.x, enemy.z, enemy.diveDirX, enemy.diveDirZ);
+        enemy.shotsFired += BURST_SIZE;
+      } else if (enemy.kind === 'carrier') {
+        fireCarrierSpread(orbs, enemy.x, enemy.z, enemy.diveDirX, enemy.diveDirZ);
+        enemy.shotsFired += SPREAD_COUNT;
+      }
     },
   };
 
@@ -294,22 +361,33 @@ function boot(): void {
       prevDashHeld = input.dash;
       updatePlayer(player, input, stepMs);
       updateEnemies(enemies, player.pos, stepMs, enemyHooks);
-      // Railgun hits on the flat plane: retire the tracer on any hit,
-      // and on the killing blow pay out score and free the slot.
+      // Railgun hits on the flat plane: per-enemy hit radii, retire the
+      // tracer on any hit, and on the killing blow pay out score and
+      // free the slot (carrier deaths also drop a shield pickup).
       for (let i = bullets.alive - 1; i >= 0; i -= 1) {
-        const target = tryHitEnemy(
-          enemies.live,
-          bullets.px[i],
-          bullets.pz[i],
-          OKADA_PARAMS.hitRadius,
-        );
+        let target: Enemy | null = null;
+        for (const enemy of enemies.live) {
+          if (!enemy.active || enemy.state === 'dead') {
+            continue;
+          }
+          if (
+            bulletHitsEnemy(
+              bullets.px[i],
+              bullets.pz[i],
+              enemy.x,
+              enemy.z,
+              enemy.params.hitRadius,
+            )
+          ) {
+            target = enemy;
+            break;
+          }
+        }
         if (target !== null) {
           const killed = damageEnemy(target, 1);
           despawnBulletAt(bullets, i);
           if (killed) {
-            kills += 1;
-            score += OKADA_SCORE;
-            releaseEnemy(enemies, target);
+            handleKill(target);
           }
         }
       }
@@ -322,6 +400,28 @@ function boot(): void {
         enemies.live,
         onFire,
       );
+      updateOrbs(orbs, stepMs);
+      // Slow orbs wound on the flat plane; spent orbs retire on hit.
+      for (let i = orbs.live.length - 1; i >= 0; i -= 1) {
+        const orb = orbs.live[i];
+        if (orb === undefined || !orb.active) {
+          continue;
+        }
+        if (orbHitsPlayer(orb.x, orb.z, player.pos.x, player.pos.z)) {
+          const wounded = takeHit(player);
+          void wounded;
+          const index = orbs.live.indexOf(orb);
+          if (index >= 0) {
+            orbs.live.splice(index, 1);
+          }
+          orb.active = false;
+          if (orb.mesh !== null) {
+            orb.mesh.visible = false;
+          }
+          orbs.pool.release(orb);
+        }
+      }
+      updatePickups(pickups, player.pos, player, stepMs);
       for (const enemy of enemies.live) {
         if (enemy.state === 'telegraph') {
           sawTelegraph = true;
@@ -349,6 +449,19 @@ function boot(): void {
       }
       syncBulletMeshes(bullets);
       syncEnemyMeshes(enemies);
+      syncOrbMeshes(orbs);
+      syncPickupMeshes(pickups);
+      // Shooter spin-up: live telegraphers yaw with time in state.
+      for (const enemy of enemies.live) {
+        if (
+          enemy.active &&
+          enemy.state === 'telegraph' &&
+          enemy.mesh !== null &&
+          (enemy.kind === 'areaboy' || enemy.kind === 'carrier')
+        ) {
+          enemy.mesh.rotation.y = enemy.stateMs * 0.012;
+        }
+      }
       // Muzzle flash at the barrel tip, fading over 60 ms.
       if (isMuzzleVisible(weapon)) {
         bullets.muzzle.position.set(
@@ -379,7 +492,13 @@ function boot(): void {
         lastTelegraphMs,
         kills,
         list: enemies.live.map(toEnemySnapshot),
+        types: Array.from(new Set(enemies.live.map((enemy) => enemy.kind))).sort(),
+        burstCount: enemies.live.reduce(
+          (sum, enemy) => sum + (enemy.kind === 'areaboy' ? enemy.shotsFired : 0),
+          0,
+        ),
       };
+      window.__TAKELIGHT_PICKUPS__ = toPickupProbe(pickups);
       window.__TAKELIGHT_SCORE__ = { kills, score };
       window.__TAKELIGHT_DASH__ = triggerDash;
       const now = performance.now();
@@ -414,6 +533,8 @@ function boot(): void {
       clearBullets(bullets);
       resetWeapon(weapon);
       clearEnemies(enemies);
+      clearOrbs(orbs);
+      clearPickups(pickups);
       kills = 0;
       score = 0;
       sawTelegraph = false;
@@ -436,15 +557,51 @@ function boot(): void {
     if (store.get() !== 'RUNNING') {
       return -1;
     }
-    if (kind !== 'okada') {
+    const angle =
+      kind === 'areaboy'
+        ? (2 * Math.PI) / 3
+        : kind === 'carrier'
+          ? (4 * Math.PI) / 3
+          : kind === 'okada'
+            ? 0
+            : null;
+    if (angle === null) {
       return -1;
     }
+    const params =
+      kind === 'areaboy'
+        ? AREABOY_PARAMS
+        : kind === 'carrier'
+          ? CARRIER_PARAMS
+          : OKADA_PARAMS;
+    const createMesh =
+      kind === 'areaboy'
+        ? createAreaboyMesh
+        : kind === 'carrier'
+          ? createCarrierMesh
+          : createOkadaMesh;
     const x = Math.min(
-      Math.max(player.pos.x + ENEMY_SPAWN_RING, -ARENA_HALF),
+      Math.max(player.pos.x + Math.cos(angle) * ENEMY_SPAWN_RING, -ARENA_HALF),
       ARENA_HALF,
     );
-    const z = Math.min(Math.max(player.pos.z, -ARENA_HALF), ARENA_HALF);
-    return spawnEnemy(enemies, 'okada', OKADA_PARAMS, x, z).id;
+    const z = Math.min(
+      Math.max(player.pos.z + Math.sin(angle) * ENEMY_SPAWN_RING, -ARENA_HALF),
+      ARENA_HALF,
+    );
+    return spawnEnemy(enemies, kind, params, x, z, createMesh).id;
+  };
+  window.__TAKELIGHT_KILL__ = (kind: string): number => {
+    if (store.get() !== 'RUNNING') {
+      return 0;
+    }
+    if (kind !== 'okada' && kind !== 'areaboy' && kind !== 'carrier') {
+      return 0;
+    }
+    const targets = enemies.live.filter((enemy) => enemy.kind === kind);
+    for (const target of targets) {
+      handleKill(target);
+    }
+    return targets.length;
   };
 
   window.addEventListener('resize', () => {
@@ -469,7 +626,10 @@ function boot(): void {
     lastTelegraphMs: 0,
     kills: 0,
     list: [],
+    types: [],
+    burstCount: 0,
   };
+  window.__TAKELIGHT_PICKUPS__ = { active: 0, list: [] };
   window.__TAKELIGHT_SCORE__ = { kills: 0, score: 0 };
   window.__TAKELIGHT_DASH__ = triggerDash;
   store.set('MENU');
