@@ -26,9 +26,77 @@
         height: 100%;
         display: block;
       }
+      #game-canvas,
+      #stick-left,
+      #stick-right,
+      #dash-btn {
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      #stick-left,
+      #stick-right {
+        position: fixed;
+        bottom: calc(16px + env(safe-area-inset-bottom));
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        border: 2px solid rgba(245, 236, 255, 0.35);
+        background: rgba(20, 12, 44, 0.35);
+        opacity: 0.55;
+        z-index: 5;
+      }
+      #stick-left {
+        left: calc(16px + env(safe-area-inset-left));
+      }
+      #stick-right {
+        right: calc(16px + env(safe-area-inset-right));
+      }
+      #dash-btn {
+        position: fixed;
+        right: calc(32px + env(safe-area-inset-right));
+        bottom: calc(160px + env(safe-area-inset-bottom));
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 209, 102, 0.7);
+        background: rgba(255, 209, 102, 0.25);
+        color: #ffd166;
+        font-family: system-ui, sans-serif;
+        font-size: 12px;
+        letter-spacing: 0.1em;
+        opacity: 0.7;
+        z-index: 5;
+        cursor: pointer;
+      }
+      #dash-btn.active {
+        background: rgba(255, 209, 102, 0.55);
+      }
+      .stick-knob {
+        position: absolute;
+        width: 54px;
+        height: 54px;
+        border-radius: 50%;
+        background: rgba(245, 236, 255, 0.55);
+        pointer-events: none;
+      }
+      @media (pointer: coarse) {
+        #stick-left,
+        #stick-right {
+          width: 148px;
+          height: 148px;
+          opacity: 0.85;
+        }
+        #dash-btn {
+          width: 88px;
+          height: 88px;
+          opacity: 0.9;
+        }
+      }
       #menu {
         position: fixed;
         inset: 0;
+        z-index: 20;
         display: flex;
         flex-direction: column;
         align-items: center;
