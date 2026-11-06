@@ -1,5 +1,6 @@
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vite';
+import { routeRunsRequest } from './src/net/runsStub';
 
 interface HealthRequest {
   url?: string;
@@ -29,6 +30,23 @@ function handleHealth(
   next();
 }
 
+function handleRunsStub(
+  req: HealthRequest,
+  res: HealthResponse,
+  next: () => void,
+): void {
+  const routed = routeRunsRequest(req.method, req.url);
+  if (routed === null) {
+    next();
+    return;
+  }
+  res.statusCode = routed.status;
+  for (const [name, value] of Object.entries(routed.headers)) {
+    res.setHeader(name, value);
+  }
+  res.end(routed.body);
+}
+
 function healthPlugin(): Plugin {
   return {
     name: 'take-light-health',
@@ -40,10 +58,24 @@ function healthPlugin(): Plugin {
           next,
         );
       });
+      server.middlewares.use((req, res, next) => {
+        handleRunsStub(
+          req as unknown as HealthRequest,
+          res as unknown as HealthResponse,
+          next,
+        );
+      });
     },
     configurePreviewServer(server) {
       server.middlewares.use((req, res, next) => {
         handleHealth(
+          req as unknown as HealthRequest,
+          res as unknown as HealthResponse,
+          next,
+        );
+      });
+      server.middlewares.use((req, res, next) => {
+        handleRunsStub(
           req as unknown as HealthRequest,
           res as unknown as HealthResponse,
           next,
