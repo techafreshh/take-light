@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { InputFrame } from './input';
+import { loadModelAsync } from './assets';
 
 // Kinematic hover player: semi-implicit Euler (accel -> exponential drag ->
 // speed clamp -> integrate) on the fixed STEP_MS quantum, hard arena clamp,
@@ -190,7 +191,13 @@ export function toPlayerSnapshot(player: Player): PlayerSnapshot {
   };
 }
 
-export function createPlayerMesh(): THREE.Mesh {
+/**
+ * Group holding the exact legacy capsule as a fallback child, with the
+ * vendored player+jetpack GLB attached asynchronously on success. The
+ * group origin sits at hover height (positioned by syncPlayerMesh), so
+ * the loaded model is offset down by its ~0.45 model-space base.
+ */
+export function createPlayerMesh(): THREE.Group {
   const geometry = new THREE.CapsuleGeometry(0.5, 1.0, 4, 12);
   const material = new THREE.MeshStandardMaterial({
     color: 0x8f7bff,
@@ -198,9 +205,20 @@ export function createPlayerMesh(): THREE.Mesh {
     emissiveIntensity: 0.55,
     flatShading: true,
   });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.set(0, HOVER_Y, 0);
-  return mesh;
+  const fallback = new THREE.Mesh(geometry, material);
+  const group = new THREE.Group();
+  group.add(fallback);
+  group.position.set(0, HOVER_Y, 0);
+  // Fire-and-forget swap: failure keeps the fallback visible.
+  void loadModelAsync('player-jetpack').then((loaded) => {
+    if (loaded === null) {
+      return;
+    }
+    loaded.position.set(0, -0.45, 0);
+    group.add(loaded);
+    fallback.visible = false;
+  });
+  return group;
 }
 
 /** Visual-only tilt: lean into velocity, clamped to +/-0.35 rad, level rest. */
