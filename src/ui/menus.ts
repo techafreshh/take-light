@@ -140,9 +140,15 @@ export function mountMenus(options: MountMenusOptions = {}): MenusHandle {
         game.set('RUNNING');
         restart.blur();
       });
+      const toMenu = makeButton('btn-menu-pause', 'Menu');
+      toMenu.addEventListener('click', () => {
+        game.set('MENU');
+        toMenu.blur();
+      });
       panel.appendChild(title);
       panel.appendChild(resume);
       panel.appendChild(restart);
+      panel.appendChild(toMenu);
       menu.appendChild(panel);
     } else if (state === 'GAMEOVER') {
       const snapshot = bridge.get();
@@ -211,11 +217,17 @@ export function mountMenus(options: MountMenusOptions = {}): MenusHandle {
       form.appendChild(input);
       form.appendChild(submit);
       form.appendChild(error);
+      const toMenu = makeButton('btn-menu', 'Menu');
+      toMenu.addEventListener('click', () => {
+        game.set('MENU');
+        toMenu.blur();
+      });
       panel.appendChild(title);
       panel.appendChild(summary);
       panel.appendChild(form);
       appendBoard(panel);
       panel.appendChild(restart);
+      panel.appendChild(toMenu);
       menu.appendChild(panel);
     }
   }
