@@ -87,6 +87,12 @@ import {
   updatePickups,
 } from './game/pickups';
 import { bulletHitsEnemy, damageEnemy, isGraze } from './game/combat';
+import { normalizeWave, planWave, type WavePlan } from './game/director';
+import {
+  applyBlackout,
+  blackoutForWave,
+  type BlackoutState,
+} from './game/blackout';
 import { takeHit } from './game/player';
 import {
   awardKill,
@@ -115,7 +121,12 @@ declare global {
       cameraPitchDeg: number;
       toneMapping: string;
       fog: boolean;
+      lightIntensity: number;
     };
+    __TAKELIGHT_WAVE__?: number;
+    __TAKELIGHT_WAVEPLAN__?: (seed: number, wave: number) => WavePlan;
+    __TAKELIGHT_SETWAVE__?: (wave: number) => number;
+    __TAKELIGHT_LIGHT__?: BlackoutState;
     __TAKELIGHT_PLAYER__?: {
       pos: { x: number; y: number; z: number };
       vel: { x: number; y: number; z: number };
@@ -209,7 +220,31 @@ function boot(): void {
   configureRenderer(renderer);
 
   // Low-poly dusk arena: water, highway, pylons, dusk lights and fog.
-  const { scene } = createArenaScene();
+  // The live light handles feed the wave-driven blackout curve.
+  const { scene, lights } = createArenaScene();
+  let currentWave = 1;
+  let currentLight = blackoutForWave(currentWave);
+
+  // Wave director probes: WAVEPLAN delegates to the pure seeded planner
+  // (side-effect-free); SETWAVE clamps, applies the blackout synchronously
+  // in the same task, and mirrors wave + light state for the probes.
+  function setWave(wave: number): number {
+    currentWave = normalizeWave(wave);
+    currentLight = applyBlackout(lights, currentWave);
+    window.__TAKELIGHT_WAVE__ = currentWave;
+    window.__TAKELIGHT_LIGHT__ = { ...currentLight };
+    const previousScene = window.__TAKELIGHT_SCENE__;
+    if (previousScene !== undefined) {
+      window.__TAKELIGHT_SCENE__ = {
+        ...previousScene,
+        lightIntensity: currentLight.lightIntensity,
+      };
+    }
+    return currentWave;
+  }
+  window.__TAKELIGHT_WAVEPLAN__ = (seed: number, wave: number): WavePlan =>
+    planWave(seed, wave);
+  window.__TAKELIGHT_SETWAVE__ = setWave;
 
   const camera = createFollowCamera(
     window.innerWidth / window.innerHeight,
@@ -575,6 +610,7 @@ function boot(): void {
           cameraPitchDeg: CAMERA_PITCH_DEG,
           toneMapping: 'ACES',
           fog: true,
+          lightIntensity: currentLight.lightIntensity,
         };
       }
       renderer.render(scene, camera);
@@ -691,6 +727,15 @@ function boot(): void {
     burstCount: 0,
   };
   window.__TAKELIGHT_PICKUPS__ = { active: 0, list: [] };
+  window.__TAKELIGHT_WAVE__ = currentWave;
+  window.__TAKELIGHT_LIGHT__ = { ...currentLight };
+  window.__TAKELIGHT_SCENE__ = {
+    pylonCount: PYLON_COUNT,
+    cameraPitchDeg: CAMERA_PITCH_DEG,
+    toneMapping: 'ACES',
+    fog: true,
+    lightIntensity: currentLight.lightIntensity,
+  };
   window.__TAKELIGHT_SCORE__ = {
     kills: scoreState.kills,
     score: scoreState.score,

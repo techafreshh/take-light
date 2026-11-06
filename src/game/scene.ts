@@ -11,11 +11,24 @@ export const FOG_NEAR = 30;
 export const FOG_FAR = 90;
 export const TONE_MAPPING_EXPOSURE = 1.1;
 
+/** Live light handles for the blackout curve, with bases for idempotent scaling. */
+export interface ArenaLights {
+  hemi: THREE.HemisphereLight;
+  sun: THREE.DirectionalLight;
+  ambient: THREE.AmbientLight;
+  pylonEmissive: THREE.MeshStandardMaterial;
+  hemiBase: number;
+  sunBase: number;
+  ambientBase: number;
+  pylonBase: number;
+}
+
 export interface Arena {
   scene: THREE.Scene;
   water: THREE.Mesh;
   highway: THREE.Mesh;
   pylons: THREE.InstancedMesh;
+  lights: ArenaLights;
 }
 
 export function createArenaScene(): Arena {
@@ -45,12 +58,29 @@ export function createArenaScene(): Arena {
   const sun = new THREE.DirectionalLight(0xff9a5c, 1.6);
   sun.position.set(-4, 8, 6);
   scene.add(sun);
-  scene.add(new THREE.AmbientLight(0x8f7bff, 0.5));
+  const ambient = new THREE.AmbientLight(0x8f7bff, 0.5);
+  scene.add(ambient);
 
   const pylons = createPylons();
   scene.add(pylons);
+  const pylonEmissive = pylons.material as THREE.MeshStandardMaterial;
 
-  return { scene, water, highway, pylons };
+  return {
+    scene,
+    water,
+    highway,
+    pylons,
+    lights: {
+      hemi: hemisphere,
+      sun,
+      ambient,
+      pylonEmissive,
+      hemiBase: hemisphere.intensity,
+      sunBase: sun.intensity,
+      ambientBase: ambient.intensity,
+      pylonBase: pylonEmissive.emissiveIntensity,
+    },
+  };
 }
 
 /** ACES tone mapping with DPR capped at 2 and a fixed exposure. */
