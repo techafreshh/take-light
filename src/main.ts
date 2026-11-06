@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { store } from './app/state';
+import { store, type GameState } from './app/state';
+import { hudStore } from './ui/store';
+import { mountHud } from './ui/hud';
+import { mountMenus } from './ui/menus';
 import { CAMERA_PITCH_DEG, addShake, createFollowCamera, createShake, shakeOffset, updateFollowCamera, updateShake } from './game/camera';
 import { createArenaScene, configureRenderer } from './game/scene';
 import { clampPan, createAudioBank, playSfx, toAudioProbe, unlockAudio } from './game/audio';
@@ -17,7 +20,9 @@ import {
 import { createTouchStickState, mountSticks } from './ui/sticks';
 import {
   ARENA_HALF,
+  DASH_COOLDOWN_MS,
   HOVER_Y,
+  MAX_SHIELDS,
   createPlayer,
   createPlayerMesh,
   resetPlayer,
@@ -173,6 +178,7 @@ declare global {
     };
     __TAKELIGHT_HIT__?: () => number;
     __TAKELIGHT_GRAZE__?: () => number;
+    __TAKELIGHT_GAMEOVER__?: () => void;
   }
 }
 
@@ -190,14 +196,6 @@ function getMenu(): HTMLElement {
     throw new Error('take-light: missing #menu overlay');
   }
   return menu;
-}
-
-function getStartButton(): HTMLButtonElement {
-  const button = document.querySelector<HTMLButtonElement>('#start-btn');
-  if (button === null) {
-    throw new Error('take-light: missing button#start-btn');
-  }
-  return button;
 }
 
 function getOverlay(): HTMLElement {
@@ -225,7 +223,6 @@ function sizeRenderer(
 function boot(): void {
   const canvas = getCanvas();
   const menu = getMenu();
-  const startButton = getStartButton();
   const overlay = getOverlay();
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -270,6 +267,8 @@ function boot(): void {
   const shake = createShake();
   const audioBank = createAudioBank();
   const fx = mountEffects();
+  mountHud();
+  mountMenus();
   const postfx: PostFX | null = createPostFX(renderer, scene, camera);
 
   // Kinematic hover player owned here; the sim core stays DOM-free.
@@ -399,6 +398,14 @@ function boot(): void {
       event.preventDefault();
     }
     pressedKeys.add(event.code);
+    if (event.code === 'Escape' || event.code === 'KeyP') {
+      const paused = store.get();
+      if (paused === 'RUNNING') {
+        store.set('PAUSED');
+      } else if (paused === 'PAUSED') {
+        store.set('RUNNING');
+      }
+    }
   });
   window.addEventListener('keyup', (event) => {
     pressedKeys.delete(event.code);
@@ -447,6 +454,12 @@ function boot(): void {
     return false;
   }
 
+  function checkGameOver(): void {
+    if (player.shields <= 0 && store.get() === 'RUNNING') {
+      store.set('GAMEOVER');
+    }
+  }
+
   // Debug/acceptance hooks: damage goes only through takeHit so dash
   // i-frames keep negating it; graze goes only through registerGraze.
   // Both no-op when not RUNNING and refresh their probe immediately.
@@ -456,6 +469,7 @@ function boot(): void {
     }
     takeHit(player);
     window.__TAKELIGHT_PLAYER__ = toPlayerSnapshot(player);
+    checkGameOver();
     return player.shields;
   }
 
@@ -568,6 +582,7 @@ function boot(): void {
             orb.mesh.visible = false;
           }
           orbs.pool.release(orb);
+          checkGameOver();
         }
       }
       // Live graze auto-detect: one registration per 300 ms max while any
@@ -690,6 +705,16 @@ function boot(): void {
         score: scoreState.score,
         multiplier: scoreState.multiplier,
       };
+      hudStore.push({
+        score: scoreState.score,
+        multiplier: scoreState.multiplier,
+        kills: scoreState.kills,
+        wave: currentWave,
+        shields: player.shields,
+        maxShields: MAX_SHIELDS,
+        dashCooldownMs: Math.ceil(player.dashCooldownMsLeft),
+        dashCooldownMaxMs: DASH_COOLDOWN_MS,
+      });
       window.__TAKELIGHT_DASH__ = triggerDash;
       window.__TAKELIGHT_HIT__ = triggerHit;
       window.__TAKELIGHT_GRAZE__ = triggerGraze;
@@ -719,12 +744,16 @@ function boot(): void {
     () => hitstop.msLeft > 0,
   );
 
-  // UI reflects the store; scene code never touches the DOM.
+  // UI reflects the store; scene code never touches the DOM. Menus own
+  // #menu visibility; this mirror keeps dataset/state probes in sync and
+  // resets the sim on every RUNNING entry except resume from PAUSED.
+  let lastState: GameState = store.get();
   store.subscribe((state) => {
+    const previous = lastState;
+    lastState = state;
     menu.dataset.state = state;
-    menu.style.display = state === 'MENU' ? 'flex' : 'none';
     window.__TAKELIGHT_STATE__ = state;
-    if (state === 'RUNNING') {
+    if (state === 'RUNNING' && previous !== 'PAUSED') {
       loop.resetTick();
       window.__TAKELIGHT_TICK__ = 0;
       resetPlayer(player);
@@ -744,12 +773,11 @@ function boot(): void {
     }
   });
 
-  startButton.addEventListener('click', () => {
-    store.set('RUNNING');
-    startButton.blur();
-  });
   window.__TAKELIGHT_START__ = () => {
     store.set('RUNNING');
+  };
+  window.__TAKELIGHT_GAMEOVER__ = () => {
+    store.set('GAMEOVER');
   };
   window.__TAKELIGHT_SET_FIRING__ = (on: boolean) => {
     window.__TAKELIGHT_FORCE_FIRE__ = on === true;

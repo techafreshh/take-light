@@ -1,0 +1,165 @@
+/* DOM glass HUD + menu overlays. Numbers only: no sim, no three.js. */
+
+.panel {
+  background: rgba(16, 10, 38, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(245, 236, 255, 0.22);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+#hud {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 14px;
+  max-width: 100vw;
+  width: max-content;
+  padding: 8px 14px;
+  color: #f5ecff;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+#hud.hidden {
+  display: none;
+}
+
+#hud-score,
+#hud-multiplier,
+#hud-wave {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  white-space: nowrap;
+}
+
+#hud-score {
+  font-weight: 700;
+  font-size: 16px;
+}
+
+#hud-multiplier {
+  color: #ffd166;
+  font-weight: 700;
+}
+
+#hud-shields {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#hud-shields .pip {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(245, 236, 255, 0.6);
+  background: rgba(245, 236, 255, 0.12);
+  box-sizing: border-box;
+}
+
+#hud-shields .pip.on {
+  background: #9ef0c8;
+  border-color: #9ef0c8;
+  box-shadow: 0 0 6px rgba(158, 240, 200, 0.8);
+}
+
+#hud-dash {
+  width: 96px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(245, 236, 255, 0.15);
+  overflow: hidden;
+}
+
+#hud-dash .dash-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: inherit;
+  background: #00e5ff;
+  transition: width 80ms linear;
+}
+
+#hud-dash .dash-fill.ready {
+  background: #ffd166;
+  box-shadow: 0 0 6px rgba(255, 209, 102, 0.9);
+}
+
+/* Menu / pause / game-over overlays share the glass panel. */
+#menu .panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem 2rem;
+  pointer-events: auto;
+}
+
+#menu .error {
+  min-height: 1.25em;
+  color: #ff8fa3;
+  font-size: 0.9rem;
+}
+
+#menu .saved {
+  color: #9ef0c8;
+  font-size: 0.9rem;
+}
+
+#menu form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: auto;
+}
+
+#menu input {
+  pointer-events: auto;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid rgba(245, 236, 255, 0.35);
+  background: rgba(10, 6, 24, 0.7);
+  color: #f5ecff;
+  font-size: 1rem;
+  text-align: center;
+}
+
+#menu input:focus {
+  outline: 2px solid #00e5ff;
+  outline-offset: 1px;
+}
+
+@media (max-width: 420px) {
+  #hud {
+    gap: 4px 8px;
+    padding: 6px 8px;
+    font-size: 12px;
+    left: 8px;
+    right: 8px;
+    transform: none;
+    width: auto;
+  }
+
+  #hud-score {
+    font-size: 14px;
+  }
+
+  #hud-dash {
+    width: 64px;
+  }
+
+  #menu .panel {
+    padding: 1rem;
+    max-width: calc(100vw - 32px);
+  }
+}

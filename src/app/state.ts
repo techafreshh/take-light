@@ -1,9 +1,9 @@
-// Game state machine: BOOT -> MENU -> RUNNING -> GAMEOVER.
+// Game state machine: BOOT -> MENU -> RUNNING <-> PAUSED -> GAMEOVER -> MENU.
 // Owns the single source of truth for game state; game code and UI meet
 // only through this store (pub/sub) — game code never touches the DOM.
 // Transitions outside the legal table are silently ignored.
 
-export type GameState = 'BOOT' | 'MENU' | 'RUNNING' | 'GAMEOVER';
+export type GameState = 'BOOT' | 'MENU' | 'RUNNING' | 'PAUSED' | 'GAMEOVER';
 
 export type GameStateListener = (state: GameState) => void;
 
@@ -16,8 +16,9 @@ export interface Store {
 const LEGAL_TRANSITIONS: Record<GameState, readonly GameState[]> = {
   BOOT: ['MENU'],
   MENU: ['RUNNING'],
-  RUNNING: ['GAMEOVER', 'MENU'],
-  GAMEOVER: ['MENU'],
+  RUNNING: ['GAMEOVER', 'MENU', 'PAUSED'],
+  PAUSED: ['RUNNING', 'MENU', 'GAMEOVER'],
+  GAMEOVER: ['MENU', 'RUNNING'],
 };
 
 export function isLegalTransition(from: GameState, to: GameState): boolean {
