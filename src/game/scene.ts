@@ -1,0 +1,61 @@
+import * as THREE from 'three';
+import { createPylons } from './props';
+
+// Low-poly dusk arena: blue water plane, dark highway strip, instanced
+// pylons, warm dusk lights, indigo background with matching fog.
+
+export const DUSK_BACKGROUND = 0x1b1035;
+export const WATER_COLOR = 0x0e4d7a;
+export const HIGHWAY_COLOR = 0x14141c;
+export const FOG_NEAR = 30;
+export const FOG_FAR = 90;
+export const TONE_MAPPING_EXPOSURE = 1.1;
+
+export interface Arena {
+  scene: THREE.Scene;
+  water: THREE.Mesh;
+  highway: THREE.Mesh;
+  pylons: THREE.InstancedMesh;
+}
+
+export function createArenaScene(): Arena {
+  const scene = new THREE.Scene();
+  const background = new THREE.Color(DUSK_BACKGROUND);
+  scene.background = background;
+  scene.fog = new THREE.Fog(background, FOG_NEAR, FOG_FAR);
+
+  const water = new THREE.Mesh(
+    new THREE.PlaneGeometry(200, 200),
+    new THREE.MeshStandardMaterial({ color: WATER_COLOR, flatShading: true }),
+  );
+  water.rotation.x = -Math.PI / 2;
+  scene.add(water);
+
+  const highway = new THREE.Mesh(
+    new THREE.PlaneGeometry(10, 200),
+    new THREE.MeshStandardMaterial({ color: HIGHWAY_COLOR, flatShading: true }),
+  );
+  highway.rotation.x = -Math.PI / 2;
+  highway.position.y = 0.02;
+  scene.add(highway);
+
+  const hemisphere = new THREE.HemisphereLight(0x8f7bff, 0x1b1035, 0.7);
+  scene.add(hemisphere);
+
+  const sun = new THREE.DirectionalLight(0xff9a5c, 1.6);
+  sun.position.set(-4, 8, 6);
+  scene.add(sun);
+  scene.add(new THREE.AmbientLight(0x8f7bff, 0.5));
+
+  const pylons = createPylons();
+  scene.add(pylons);
+
+  return { scene, water, highway, pylons };
+}
+
+/** ACES tone mapping with DPR capped at 2 and a fixed exposure. */
+export function configureRenderer(renderer: THREE.WebGLRenderer): void {
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+}
