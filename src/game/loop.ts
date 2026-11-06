@@ -9,6 +9,36 @@ export const MAX_STEPS_PER_FRAME = 5;
 
 export const MAX_FRAME_DELTA_MS = 100;
 
+/** Kill hitstop: sim freeze consumed in STEP_MS quanta on kill. */
+export const HITSTOP_MS = 60;
+
+export interface HitstopState {
+  msLeft: number;
+}
+
+/** Fresh hitstop state with no freeze pending. */
+export function createHitstop(): HitstopState {
+  return { msLeft: 0 };
+}
+
+/** Arm a full kill hitstop freeze. */
+export function triggerHitstop(state: HitstopState): void {
+  state.msLeft = HITSTOP_MS;
+}
+
+/**
+ * Consume one sim step of freeze. Returns true when this sim step must
+ * be skipped (hitstop active). Pure: mutates only state.msLeft.
+ */
+export function consumeHitstop(state: HitstopState, stepMs: number): boolean {
+  if (state.msLeft <= 0) {
+    state.msLeft = 0;
+    return false;
+  }
+  state.msLeft = Math.max(0, state.msLeft - stepMs);
+  return true;
+}
+
 export type SimUpdate = (stepMs: number) => void;
 
 export type FrameRender = (alpha: number) => void;
@@ -36,6 +66,7 @@ export function createFixedLoop(
   update: SimUpdate,
   render: FrameRender,
   isRunning: () => boolean = () => true,
+  isFrozen: () => boolean = () => false,
 ): FixedLoop {
   let tick = 0;
   let accumulator = 0;
@@ -65,18 +96,22 @@ export function createFixedLoop(
     }
 
     if (isRunning()) {
-      accumulator += delta;
-      let steps = 0;
-      while (accumulator >= STEP_MS && steps < MAX_STEPS_PER_FRAME) {
-        accumulator -= STEP_MS;
-        steps += 1;
-        tick += 1;
-        update(STEP_MS);
+      if (!isFrozen()) {
+        accumulator += delta;
+        let steps = 0;
+        while (accumulator >= STEP_MS && steps < MAX_STEPS_PER_FRAME) {
+          accumulator -= STEP_MS;
+          steps += 1;
+          tick += 1;
+          update(STEP_MS);
+        }
+        if (steps >= MAX_STEPS_PER_FRAME) {
+          // Shed backlog instead of spiralling after a hitch.
+          accumulator = 0;
+        }
       }
-      if (steps >= MAX_STEPS_PER_FRAME) {
-        // Shed backlog instead of spiralling after a hitch.
-        accumulator = 0;
-      }
+      // Frozen (hitstop): hold the accumulator — no banking, no
+      // stepping, no tick — while render and probes keep running.
     } else {
       // Paused states must not bank sim time.
       accumulator = 0;

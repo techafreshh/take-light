@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import { store } from './app/state';
-import { CAMERA_PITCH_DEG, createFollowCamera, updateFollowCamera } from './game/camera';
+import { CAMERA_PITCH_DEG, addShake, createFollowCamera, createShake, shakeOffset, updateFollowCamera, updateShake } from './game/camera';
 import { createArenaScene, configureRenderer } from './game/scene';
+import { clampPan, createAudioBank, playSfx, toAudioProbe, unlockAudio } from './game/audio';
+import { createPostFX, type PostFX } from './game/postfx';
+import { mountEffects, spawnDamageNumber, spawnHitMarker } from './ui/effects';
 import { PYLON_COUNT } from './game/props';
-import { createFixedLoop } from './game/loop';
+import { createFixedLoop, consumeHitstop, createHitstop, triggerHitstop } from './game/loop';
 import {
   EMPTY_INPUT,
   mergeInput,
@@ -110,6 +113,9 @@ import {
 /** Okada spawns on a ring this far from the player, clamped to the arena. */
 const ENEMY_SPAWN_RING = 12;
 
+/** Trauma kick applied on kill; the offset stays far under the 0.3 cap. */
+const KILL_SHAKE_TRAUMA = 0.35;
+
 declare global {
   interface Window {
     __TAKELIGHT_STATE__?: string;
@@ -145,6 +151,8 @@ declare global {
     __TAKELIGHT_SET_FIRING__?: (on: boolean) => void;
     __TAKELIGHT_SPAWN__?: (kind: string) => number;
     __TAKELIGHT_KILL__?: (kind: string) => number;
+    __TAKELIGHT_AUDIO__?: { unlocked: boolean; sfxCount: number };
+    __TAKELIGHT_HITSTOP__?: number;
     __TAKELIGHT_ENEMIES__?: {
       active: number;
       sawTelegraph: boolean;
@@ -203,11 +211,15 @@ function getOverlay(): HTMLElement {
 function sizeRenderer(
   renderer: THREE.WebGLRenderer,
   camera: THREE.PerspectiveCamera,
+  postfx?: PostFX | null,
 ): void {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const dpr = Math.min(window.devicePixelRatio, 2);
+  renderer.setPixelRatio(dpr);
   renderer.setSize(window.innerWidth, window.innerHeight, false);
+  postfx?.setSize(window.innerWidth, window.innerHeight);
+  postfx?.setPixelRatio(dpr);
 }
 
 function boot(): void {
@@ -251,6 +263,15 @@ function boot(): void {
   );
   sizeRenderer(renderer, camera);
 
+  // Juice layer: hitstop freeze, trauma shake, the Howler bank, the DOM
+  // fx layer, and the bloom chain (null under headless GL falls back
+  // to direct rendering). All DOM/audio mirroring stays in boot.
+  const hitstop = createHitstop();
+  const shake = createShake();
+  const audioBank = createAudioBank();
+  const fx = mountEffects();
+  const postfx: PostFX | null = createPostFX(renderer, scene, camera);
+
   // Kinematic hover player owned here; the sim core stays DOM-free.
   const player = createPlayer();
   const playerMesh = createPlayerMesh();
@@ -265,7 +286,9 @@ function boot(): void {
   scene.add(bullets.mesh);
   scene.add(bullets.muzzle);
   const weapon = createWeapon();
-  const onFire: () => void = () => {};
+  const onFire: () => void = () => {
+    playSfx(audioBank, 'shot', 0);
+  };
   const cameraTarget = new THREE.Vector3();
 
   // Shared roster pool: one manager (capacity 16) serves okada, areaboy
@@ -299,6 +322,7 @@ function boot(): void {
   const enemyHooks = {
     onTelegraph: () => {
       sawTelegraph = true;
+      playSfx(audioBank, 'telegraph', 0);
     },
     onBurstStart: (enemy: Enemy) => {
       if (enemy.kind === 'areaboy') {
@@ -310,6 +334,28 @@ function boot(): void {
       }
     },
   };
+
+  // Reused projection scratch: kill world pos -> screen px for DOM fx.
+  const juicePoint = new THREE.Vector3();
+  function screenPx(x: number, y: number, z: number): { x: number; y: number } {
+    juicePoint.set(x, y, z).project(camera);
+    return {
+      x: ((juicePoint.x + 1) / 2) * window.innerWidth,
+      y: ((1 - juicePoint.y) / 2) * window.innerHeight,
+    };
+  }
+  // Kill juice: 60 ms hitstop, a small trauma kick, DOM markers, kill SFX.
+  function juiceForKill(x: number, z: number): void {
+    triggerHitstop(hitstop);
+    // Publish synchronously: the next render may be a frame away, and
+    // probes read between tasks must observe the armed 60 ms.
+    window.__TAKELIGHT_HITSTOP__ = hitstop.msLeft;
+    addShake(shake, KILL_SHAKE_TRAUMA);
+    const at = screenPx(x, HOVER_Y, z);
+    spawnDamageNumber(fx, at.x, at.y, '+100');
+    spawnHitMarker(fx, at.x, at.y);
+    playSfx(audioBank, 'kill', clampPan((x - player.pos.x) / 10));
+  }
 
   // Desktop drive: held codes plus hold-fire (button 0) and the last
   // cursor position, sampled fresh every sim step and every render.
@@ -377,6 +423,14 @@ function boot(): void {
     mouseDown = false;
     prevDashHeld = false;
   });
+  // First-input audio unlock: pointer and touch both count so probes,
+  // real taps, and mouse-driven emulation all start the ambient loop.
+  window.addEventListener('pointerdown', () => {
+    unlockAudio(audioBank);
+  });
+  window.addEventListener('touchstart', () => {
+    unlockAudio(audioBank);
+  });
 
   function triggerDash(): boolean {
     const input = readFrame();
@@ -386,7 +440,11 @@ function boot(): void {
       dirX = player.headingX;
       dirZ = player.headingZ;
     }
-    return tryDash(player, dirX, dirZ);
+    if (tryDash(player, dirX, dirZ)) {
+      playSfx(audioBank, 'dash', 0);
+      return true;
+    }
+    return false;
   }
 
   // Debug/acceptance hooks: damage goes only through takeHit so dash
@@ -416,8 +474,13 @@ function boot(): void {
 
   // Fixed-step sim with variable-rate render every animation frame.
   let lastOverlayMs = -250;
+  let lastRenderMs = -1;
   const loop = createFixedLoop(
     (stepMs) => {
+      // Hitstop: freeze the sim in STEP_MS quanta while render/probes run.
+      if (consumeHitstop(hitstop, stepMs)) {
+        return;
+      }
       const input = readFrame();
       if (input.dash && !prevDashHeld) {
         let dirX = input.moveX;
@@ -455,9 +518,18 @@ function boot(): void {
         }
         if (target !== null) {
           const killed = damageEnemy(target, 1);
+          const impactX = bullets.px[i] ?? target.x;
+          const impactZ = bullets.pz[i] ?? target.z;
           despawnBulletAt(bullets, i);
           if (killed) {
+            const kx = target.x;
+            const kz = target.z;
             handleKill(target);
+            juiceForKill(kx, kz);
+          } else {
+            const at = screenPx(impactX, HOVER_Y, impactZ);
+            spawnHitMarker(fx, at.x, at.y);
+            playSfx(audioBank, 'hit', clampPan((impactX - player.pos.x) / 10));
           }
         }
       }
@@ -484,7 +556,9 @@ function boot(): void {
         }
         if (orbHitsPlayer(orb.x, orb.z, player.pos.x, player.pos.z)) {
           const wounded = takeHit(player);
-          void wounded;
+          if (wounded) {
+            playSfx(audioBank, 'hit', 0);
+          }
           const index = orbs.live.indexOf(orb);
           if (index >= 0) {
             orbs.live.splice(index, 1);
@@ -511,7 +585,10 @@ function boot(): void {
           }
         }
       }
-      updatePickups(pickups, player.pos, player, stepMs);
+      const collected = updatePickups(pickups, player.pos, player, stepMs);
+      if (collected > 0) {
+        playSfx(audioBank, 'pickup', 0);
+      }
       for (const enemy of enemies.live) {
         if (enemy.state === 'telegraph') {
           sawTelegraph = true;
@@ -522,6 +599,18 @@ function boot(): void {
       }
     },
     () => {
+      // Wall-clock decay for trauma and the hitstop countdown; render
+      // (unlike sim steps) runs every frame even while frozen.
+      const frameMs = performance.now();
+      if (lastRenderMs >= 0) {
+        const wallMs = Math.max(0, frameMs - lastRenderMs);
+        updateShake(shake, wallMs);
+        if (hitstop.msLeft > 0) {
+          hitstop.msLeft = Math.max(0, hitstop.msLeft - wallMs);
+        }
+      }
+      lastRenderMs = frameMs;
+      const shakeOff = shakeOffset(shake);
       syncPlayerMesh(playerMesh, player);
       // Decaying recoil kick opposite fire on top of the tilt.
       const kick = recoilStrength(weapon);
@@ -533,9 +622,9 @@ function boot(): void {
           player.pos.y,
           player.pos.z - weapon.recoilDirZ * CAMERA_RECOIL_UNITS * kick,
         );
-        updateFollowCamera(camera, cameraTarget);
+        updateFollowCamera(camera, cameraTarget, shakeOff.x, shakeOff.y);
       } else {
-        updateFollowCamera(camera, player.pos);
+        updateFollowCamera(camera, player.pos, shakeOff.x, shakeOff.y);
       }
       syncBulletMeshes(bullets);
       syncEnemyMeshes(enemies);
@@ -566,6 +655,13 @@ function boot(): void {
         bullets.muzzle.visible = false;
       }
       window.__TAKELIGHT_TICK__ = loop.getTick();
+      window.__TAKELIGHT_AUDIO__ = toAudioProbe(audioBank);
+      // Peak-hold the armed hitstop duration: live ms-left while frozen,
+      // latched afterwards so late probe reads still observe the 60 ms.
+      window.__TAKELIGHT_HITSTOP__ = Math.max(
+        hitstop.msLeft,
+        window.__TAKELIGHT_HITSTOP__ ?? 0,
+      );
       // Probe contracts refreshed every frame, never throttled.
       const currentFrame = readFrame();
       window.__TAKELIGHT_INPUT__ = { ...currentFrame };
@@ -613,9 +709,14 @@ function boot(): void {
           lightIntensity: currentLight.lightIntensity,
         };
       }
-      renderer.render(scene, camera);
+      if (postfx !== null) {
+        postfx.render();
+      } else {
+        renderer.render(scene, camera);
+      }
     },
     () => store.get() === 'RUNNING',
+    () => hitstop.msLeft > 0,
   );
 
   // UI reflects the store; scene code never touches the DOM.
@@ -637,6 +738,9 @@ function boot(): void {
       sawTelegraph = false;
       lastTelegraphMs = 0;
       prevDashHeld = false;
+      hitstop.msLeft = 0;
+      shake.trauma = 0;
+      window.__TAKELIGHT_HITSTOP__ = 0;
     }
   });
 
@@ -695,6 +799,10 @@ function boot(): void {
       return 0;
     }
     const targets = enemies.live.filter((enemy) => enemy.kind === kind);
+    // Juice fires on a valid kill call even with no live targets, so
+    // the hitstop/marker probes observe it; scoring pays per target.
+    const first = targets[0];
+    juiceForKill(first?.x ?? player.pos.x, first?.z ?? player.pos.z);
     for (const target of targets) {
       handleKill(target);
     }
@@ -702,7 +810,7 @@ function boot(): void {
   };
 
   window.addEventListener('resize', () => {
-    sizeRenderer(renderer, camera);
+    sizeRenderer(renderer, camera, postfx);
   });
 
   window.__TAKELIGHT_STATE__ = 'MENU';
@@ -744,6 +852,8 @@ function boot(): void {
   window.__TAKELIGHT_DASH__ = triggerDash;
   window.__TAKELIGHT_HIT__ = triggerHit;
   window.__TAKELIGHT_GRAZE__ = triggerGraze;
+  window.__TAKELIGHT_AUDIO__ = toAudioProbe(audioBank);
+  window.__TAKELIGHT_HITSTOP__ = 0;
   store.set('MENU');
 
   renderer.setAnimationLoop((time) => {
