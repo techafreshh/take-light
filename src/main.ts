@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import { store } from './app/state';
+import { CAMERA_PITCH_DEG, createFollowCamera, updateFollowCamera } from './game/camera';
+import { createArenaScene, configureRenderer } from './game/scene';
+import { PYLON_COUNT } from './game/props';
 import { createFixedLoop } from './game/loop';
 
 // Boot: renderer on the static canvas, a placeholder dusk scene, the 60 Hz
@@ -11,6 +14,13 @@ declare global {
     __TAKELIGHT_STATE__?: string;
     __TAKELIGHT_TICK__?: number;
     __TAKELIGHT_START__?: () => void;
+    __TAKELIGHT_FPS__?: number;
+    __TAKELIGHT_SCENE__?: {
+      pylonCount: number;
+      cameraPitchDeg: number;
+      toneMapping: string;
+      fog: boolean;
+    };
   }
 }
 
@@ -63,52 +73,40 @@ function boot(): void {
   const overlay = getOverlay();
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  configureRenderer(renderer);
 
-  // Placeholder dusk scene: deep indigo clear color, one emissive marker
-  // mesh, one warm directional light plus ambient fill.
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1b1035);
+  // Low-poly dusk arena: water, highway, pylons, dusk lights and fog.
+  const { scene } = createArenaScene();
 
-  const camera = new THREE.PerspectiveCamera(
-    60,
+  const camera = createFollowCamera(
     window.innerWidth / window.innerHeight,
-    0.1,
-    200,
   );
-  camera.position.set(0, 6, 10);
-  camera.lookAt(0, 0, 0);
   sizeRenderer(renderer, camera);
 
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(1.5, 1.5, 1.5),
-    new THREE.MeshStandardMaterial({
-      color: 0x7c5cff,
-      emissive: 0xff6ad5,
-      emissiveIntensity: 0.55,
-    }),
-  );
-  mesh.position.y = 1;
-  scene.add(mesh);
+  // Placeholder follow target until the player slice takes it over.
+  const playerOrigin = new THREE.Vector3(0, 0, 0);
+  updateFollowCamera(camera, playerOrigin);
 
-  const sun = new THREE.DirectionalLight(0xff9a5c, 1.6);
-  sun.position.set(-4, 8, 6);
-  scene.add(sun);
-  scene.add(new THREE.AmbientLight(0x8f7bff, 0.5));
-
-  // Fixed-step sim: one deterministic quantum per tick, mesh advanced by a
-  // constant increment. Variable-rate render every animation frame.
+  // Fixed-step sim with variable-rate render every animation frame.
   let lastOverlayMs = -250;
   const loop = createFixedLoop(
     () => {
-      mesh.rotation.y += 0.02;
-      mesh.rotation.x += 0.007;
+      // No sim bodies yet; the camera tracks the fixed origin below.
     },
     () => {
+      updateFollowCamera(camera, playerOrigin);
       window.__TAKELIGHT_TICK__ = loop.getTick();
       const now = performance.now();
       if (now - lastOverlayMs >= 250) {
         lastOverlayMs = now;
         overlay.textContent = `fps: ${loop.getFps()} tick: ${loop.getTick()}`;
+        window.__TAKELIGHT_FPS__ = loop.getFps();
+        window.__TAKELIGHT_SCENE__ = {
+          pylonCount: PYLON_COUNT,
+          cameraPitchDeg: CAMERA_PITCH_DEG,
+          toneMapping: 'ACES',
+          fog: true,
+        };
       }
       renderer.render(scene, camera);
     },
