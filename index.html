@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#14102a" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>take-light — neon-dusk jetpack arena</title>
     <link rel="icon" href="data:," />
     <style>
@@ -14,6 +17,36 @@
         height: 100%;
         overflow: hidden;
         background: #14102a;
+        touch-action: none;
+        max-width: 100vw;
+        overflow-x: hidden;
+        overflow-x: clip;
+      }
+      #root,
+      #menu {
+        max-width: 100vw;
+      }
+      #portrait-notice {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 15;
+        align-items: center;
+        justify-content: center;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right)
+          env(safe-area-inset-bottom) env(safe-area-inset-left);
+        color: #f5ecff;
+        background: rgba(20, 16, 42, 0.85);
+        font-family: system-ui, sans-serif;
+        font-size: 1.1rem;
+        letter-spacing: 0.05em;
+        text-align: center;
+        pointer-events: none;
+      }
+      @media (orientation: portrait) {
+        #portrait-notice {
+          display: flex;
+        }
       }
       #root {
         position: fixed;
@@ -109,8 +142,10 @@
       }
       #menu h1 {
         margin: 0;
-        font-size: 2.5rem;
+        font-size: clamp(1.5rem, 8vw, 2.5rem);
         letter-spacing: 0.2em;
+        overflow-wrap: anywhere;
+        max-width: 100%;
       }
       #menu p {
         margin: 0;
@@ -196,6 +231,9 @@
   <body>
     <div id="root">
       <canvas id="game-canvas"></canvas>
+      <div id="portrait-notice" role="note">
+        Rotate your device to landscape to play take-light
+      </div>
       <div id="menu" data-state="BOOT">
         <h1>take-light</h1>
         <p>MENU</p>
