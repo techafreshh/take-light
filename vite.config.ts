@@ -1,5 +1,6 @@
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 import { routeRunsRequest } from './src/net/runsStub';
 import { routeSubmitRequest } from './src/net/submitStub';
 
@@ -173,7 +174,19 @@ function healthPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [healthPlugin()],
+  plugins: [
+    healthPlugin(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      manifest: false,
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,webmanifest}'],
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
+      },
+    }),
+  ],
   server: {
     host: true,
     port: 5173,
