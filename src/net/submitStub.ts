@@ -3,6 +3,7 @@
 // No DOM, no Vite imports: method + URL + raw body in, status/body out.
 
 import { validateSubmit } from './clamp';
+import { addRun } from './runsStore';
 
 export interface SubmitRouteResult {
   status: number;
@@ -95,6 +96,8 @@ export function routeSubmitRequest(
     };
   }
   const row = validated.row;
+  const created_at = new Date().toISOString();
+  addRun({ ...row, created_at });
   return {
     status: 201,
     body: JSON.stringify({
@@ -103,7 +106,7 @@ export function routeSubmitRequest(
       score: row.score,
       wave: row.wave,
       duration_s: row.duration_s,
-      created_at: new Date().toISOString(),
+      created_at,
     }),
     headers: { ...JSON_HEADERS },
   };

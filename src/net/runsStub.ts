@@ -2,6 +2,8 @@
 // anonymous reads are allowed, all direct writes are denied. No DOM,
 // no Vite imports: method + URL in, status/body out, safe for headless tests.
 
+import { listRuns } from './runsStore';
+
 /** PostgREST RLS denial code, surfaced so probes can match on it. */
 export const RLS_DENIAL_CODE = '42501';
 
@@ -47,7 +49,11 @@ export function routeRunsRequest(
   }
   const verb = (method ?? 'GET').toUpperCase();
   if (verb === 'GET') {
-    return { status: 200, body: '[]', headers: { ...JSON_HEADERS } };
+    return {
+      status: 200,
+      body: JSON.stringify(listRuns()),
+      headers: { ...JSON_HEADERS },
+    };
   }
   if (verb === 'POST' || verb === 'PUT' || verb === 'PATCH' || verb === 'DELETE') {
     return { status: 403, body: denialBody(), headers: { ...JSON_HEADERS } };
