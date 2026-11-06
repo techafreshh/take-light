@@ -2,7 +2,12 @@
 // renders per GameState, writes the local personal best. Reads only the
 // numbers-only hudStore bridge; never imports three.js or game sim code.
 import { store, type Store } from '../app/state';
-import { hudStore, PB_STORAGE_KEY, type HudStore } from './store';
+import { hudStore, type HudStore } from './store';
+import {
+  maybeWritePb,
+  pbDisplayText,
+  type LeaderboardRow,
+} from '../net/leaderboard';
 
 export interface PbEntry {
   name: string;
@@ -20,6 +25,7 @@ export interface MountMenusOptions {
 
 export interface MenusHandle {
   element: HTMLElement;
+  refreshBoard(rows?: LeaderboardRow[]): void;
   unmount(): void;
 }
 
@@ -57,6 +63,47 @@ export function mountMenus(options: MountMenusOptions = {}): MenusHandle {
   const bridge = options.hud ?? hudStore;
   const onSubmit = options.onSubmit;
   const menu = getMenuElement();
+  let latestRows: LeaderboardRow[] = [];
+
+  // Weekly board plus the always-present personal best. Rows cap at 100;
+  // the pb text carries the (queued) suffix while the offline queue holds
+  // entries.
+  function appendBoard(panel: HTMLElement): void {
+    const list = document.createElement('ol');
+    list.id = 'leaderboard';
+    for (const row of latestRows.slice(0, 100)) {
+      const item = document.createElement('li');
+      item.textContent = `${row.name} — ${row.score} pts · Wave ${row.wave}`;
+      list.appendChild(item);
+    }
+    panel.appendChild(list);
+    const pb = document.createElement('div');
+    pb.id = 'pb';
+    pb.textContent = pbDisplayText();
+    panel.appendChild(pb);
+  }
+
+  // Repaint the board and the pb suffix in place so main.ts can push
+  // fetched rows without remounting; a bare call only refreshes the
+  // pb text (queued suffix) after submits and flushes.
+  function refreshBoard(rows?: LeaderboardRow[]): void {
+    if (rows !== undefined) {
+      latestRows = rows.slice(0, 100);
+    }
+    const board = menu.querySelector('#leaderboard');
+    if (board !== null) {
+      board.textContent = '';
+      for (const row of latestRows.slice(0, 100)) {
+        const item = document.createElement('li');
+        item.textContent = `${row.name} — ${row.score} pts · Wave ${row.wave}`;
+        board.appendChild(item);
+      }
+    }
+    const pb = menu.querySelector('#pb');
+    if (pb !== null) {
+      pb.textContent = pbDisplayText();
+    }
+  }
 
   function renderMenu(state: string): void {
     setVisible(menu, state);
@@ -76,6 +123,7 @@ export function mountMenus(options: MountMenusOptions = {}): MenusHandle {
       panel.appendChild(title);
       panel.appendChild(subtitle);
       panel.appendChild(start);
+      appendBoard(panel);
       menu.appendChild(panel);
     } else if (state === 'PAUSED') {
       const panel = document.createElement('div');
@@ -142,14 +190,9 @@ export function mountMenus(options: MountMenusOptions = {}): MenusHandle {
           kills: live.kills,
           at: new Date().toISOString(),
         };
-        try {
-          window.localStorage.setItem(
-            PB_STORAGE_KEY,
-            JSON.stringify(entry),
-          );
-        } catch {
-          // Storage full/blocked: still confirm + callback, never throw.
-        }
+        // Personal best writes synchronously so the pb store is filled in
+        // the same task as the click, even while offline.
+        maybeWritePb(entry);
         error.textContent = '';
         let saved = panel.querySelector('.saved');
         if (saved === null) {
@@ -171,6 +214,7 @@ export function mountMenus(options: MountMenusOptions = {}): MenusHandle {
       panel.appendChild(title);
       panel.appendChild(summary);
       panel.appendChild(form);
+      appendBoard(panel);
       panel.appendChild(restart);
       menu.appendChild(panel);
     }
@@ -180,6 +224,7 @@ export function mountMenus(options: MountMenusOptions = {}): MenusHandle {
 
   return {
     element: menu,
+    refreshBoard,
     unmount(): void {
       unsubscribe();
     },
