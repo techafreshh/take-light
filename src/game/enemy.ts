@@ -30,6 +30,10 @@ export interface EnemyParams {
   maxHp: number;
   baseGlow: number;
   telegraphGlow: number;
+  /** Tangential orbit speed for keep-distance shooters; unset = rush. */
+  strafeSpeed?: number;
+  /** Preferred range for keep-distance shooters; unset = rush. */
+  preferRange?: number;
 }
 
 export interface Enemy {
@@ -56,6 +60,8 @@ export interface Enemy {
   diveDirZ: number;
   glowIntensity: number;
   params: EnemyParams;
+  /** Total orbs fired by this enemy; volley sources increment on burst. */
+  shotsFired: number;
   active: boolean;
   mesh: THREE.Group | null;
   bodyMat: THREE.MeshStandardMaterial | null;
@@ -65,6 +71,8 @@ export interface Enemy {
 export interface EnemyHooks {
   onTelegraph?: (enemy: Enemy) => void;
   onDeath?: (enemy: Enemy) => void;
+  /** Fired once at telegraph exit where the dive bearing locks. */
+  onBurstStart?: (enemy: Enemy) => void;
 }
 
 export interface EnemySnapshot {
@@ -76,6 +84,7 @@ export interface EnemySnapshot {
   hp: number;
   x: number;
   z: number;
+  burstCount: number;
 }
 
 export interface EnemyManager {
@@ -198,6 +207,7 @@ export function createEnemyManager(
       diveDirZ: -1,
       glowIntensity: 0,
       params: undefined as unknown as EnemyParams,
+      shotsFired: 0,
       active: false,
       mesh,
       bodyMat: body,
@@ -209,7 +219,10 @@ export function createEnemyManager(
 
 /**
  * Fill one slot (recycling the oldest live enemy when exhausted, like the
- * pool's acquire contract). Always starts idle at base glow.
+ * pool's acquire contract). Always starts idle at base glow. The optional
+ * mesh factory swaps the slot mesh only on kind change (tag-guarded via
+ * mesh.userData.kindTag, scene detach/attach through the manager scene)
+ * so the hot loop never allocates.
  */
 export function spawnEnemy(
   manager: EnemyManager,
@@ -217,8 +230,27 @@ export function spawnEnemy(
   params: EnemyParams,
   x: number,
   z: number,
+  createMesh?: EnemyMeshFactory,
 ): Enemy {
   const slot = manager.pool.acquire();
+  if (createMesh !== undefined) {
+    const tag = (slot.mesh?.userData as { kindTag?: unknown } | undefined)
+      ?.kindTag;
+    if (tag !== kind) {
+      if (slot.mesh !== null && manager.scene !== undefined) {
+        manager.scene.remove(slot.mesh);
+      }
+      const mesh = createMesh();
+      (mesh.userData as { kindTag?: unknown }).kindTag = kind;
+      if (manager.scene !== undefined) {
+        manager.scene.add(mesh);
+      }
+      const { body, line } = materialsFrom(mesh);
+      slot.mesh = mesh;
+      slot.bodyMat = body;
+      slot.lineMat = line;
+    }
+  }
   slot.id = manager.nextId;
   manager.nextId += 1;
   slot.kind = kind;
@@ -230,6 +262,7 @@ export function spawnEnemy(
   slot.lastTelegraphMs = 0;
   slot.hp = params.maxHp;
   slot.maxHp = params.maxHp;
+  slot.shotsFired = 0;
   slot.x = clampArena(x);
   slot.z = clampArena(z);
   slot.targetX = slot.x;
@@ -334,10 +367,37 @@ export function updateEnemies(
         const dx = playerPos.x - enemy.x;
         const dz = playerPos.z - enemy.z;
         const dist = Math.hypot(dx, dz);
-        if (dist > 1e-6) {
-          const travel = params.chaseSpeed * dt;
-          enemy.x = clampArena(enemy.x + (dx / dist) * travel);
-          enemy.z = clampArena(enemy.z + (dz / dist) * travel);
+        const useStrafe =
+          params.strafeSpeed !== undefined ||
+          params.preferRange !== undefined;
+        if (!useStrafe) {
+          if (dist > 1e-6) {
+            const travel = params.chaseSpeed * dt;
+            enemy.x = clampArena(enemy.x + (dx / dist) * travel);
+            enemy.z = clampArena(enemy.z + (dz / dist) * travel);
+          }
+        } else if (dist > 1e-6) {
+          const nx = dx / dist;
+          const nz = dz / dist;
+          let radial = params.chaseSpeed * dt;
+          if (params.preferRange !== undefined) {
+            if (dist < params.preferRange) {
+              radial = -params.chaseSpeed * dt;
+            }
+          }
+          let mx = nx * radial;
+          let mz = nz * radial;
+          if (
+            params.strafeSpeed !== undefined &&
+            params.strafeSpeed > 0
+          ) {
+            const sign = enemy.id % 2 === 0 ? 1 : -1;
+            const orbit = params.strafeSpeed * dt * sign;
+            mx += -nz * orbit;
+            mz += nx * orbit;
+          }
+          enemy.x = clampArena(enemy.x + mx);
+          enemy.z = clampArena(enemy.z + mz);
         }
         const flat = Math.hypot(playerPos.x - enemy.x, playerPos.z - enemy.z);
         if (
@@ -369,6 +429,9 @@ export function updateEnemies(
           enemy.stateMs = 0;
           enemy.telegraphMs = 0;
           enemy.glowIntensity = params.baseGlow;
+          if (hooks.onBurstStart !== undefined) {
+            hooks.onBurstStart(enemy);
+          }
         }
         break;
       }
@@ -425,5 +488,6 @@ export function toEnemySnapshot(enemy: Enemy): EnemySnapshot {
     hp: enemy.hp,
     x: enemy.x,
     z: enemy.z,
+    burstCount: enemy.shotsFired,
   };
 }

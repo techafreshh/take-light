@@ -54,6 +54,7 @@ export function createOkadaMesh(): THREE.Group {
   group.add(body, line);
   group.userData.bodyMat = bodyMat;
   group.userData.lineMat = lineMat;
+  group.userData.kindTag = 'okada';
   group.visible = false;
   return group;
 }
