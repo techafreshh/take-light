@@ -194,6 +194,7 @@ declare global {
     };
     __TAKELIGHT_HEAP__?: () => number;
     __TAKELIGHT_GAMEOVER__?: () => void;
+    __TAKELIGHT_FULLRUN__?: () => Promise<{ status: string; row: object | null }>;
   }
 }
 
@@ -252,12 +253,15 @@ function boot(): void {
   arena.applyDuskEnvironment(renderer);
   let currentWave = 1;
   let currentLight = blackoutForWave(currentWave);
+  let waveElapsedMs = 0;
+  let waveSeed = 42;
 
   // Wave director probes: WAVEPLAN delegates to the pure seeded planner
   // (side-effect-free); SETWAVE clamps, applies the blackout synchronously
   // in the same task, and mirrors wave + light state for the probes.
   function setWave(wave: number): number {
     currentWave = normalizeWave(wave);
+    waveElapsedMs = 0;
     currentLight = applyBlackout(lights, currentWave);
     window.__TAKELIGHT_WAVE__ = currentWave;
     window.__TAKELIGHT_LIGHT__ = { ...currentLight };
@@ -373,6 +377,45 @@ function boot(): void {
   // fixed quantum; real SFX lands in a later issue so the telegraph
   // hook only latches the probe flag (no-op for audio).
   const enemies = createEnemyManager(scene, ENEMY_CAPACITY, createOkadaMesh);
+  // Timed wave plans: each plan's okada/areaboy/carrier plus any rush
+  // bonus ride the shared spawn ring so a 10-wave run lasts ~4 minutes.
+  function spawnWavePlan(plan: WavePlan): void {
+    const total =
+      plan.okada + plan.areaboy + plan.carrier + plan.rushBonusOkada;
+    if (total <= 0) {
+      return;
+    }
+    let index = 0;
+    const spawnOne = (
+      kind: string,
+      params: typeof OKADA_PARAMS,
+      createMesh: () => THREE.Group,
+    ): void => {
+      const angle = (index / total) * Math.PI * 2;
+      index += 1;
+      const x = Math.min(
+        Math.max(player.pos.x + Math.cos(angle) * ENEMY_SPAWN_RING, -ARENA_HALF),
+        ARENA_HALF,
+      );
+      const z = Math.min(
+        Math.max(player.pos.z + Math.sin(angle) * ENEMY_SPAWN_RING, -ARENA_HALF),
+        ARENA_HALF,
+      );
+      spawnEnemy(enemies, kind, params, x, z, createMesh);
+    };
+    for (let i = 0; i < plan.okada; i += 1) {
+      spawnOne('okada', OKADA_PARAMS, createOkadaMesh);
+    }
+    for (let i = 0; i < plan.areaboy; i += 1) {
+      spawnOne('areaboy', AREABOY_PARAMS, createAreaboyMesh);
+    }
+    for (let i = 0; i < plan.carrier; i += 1) {
+      spawnOne('carrier', CARRIER_PARAMS, createCarrierMesh);
+    }
+    for (let i = 0; i < plan.rushBonusOkada; i += 1) {
+      spawnOne('okada', OKADA_PARAMS, createOkadaMesh);
+    }
+  }
   const orbs = createOrbField(scene);
   const pickups = createPickupField(scene);
   const scoreState = createScore();
@@ -576,6 +619,18 @@ function boot(): void {
       // Danfo traffic cruises on the same fixed quantum (render does no
       // traffic work: matrices are already current from this step).
       updateDanfoTraffic(traffic, STEP_MS);
+      // Timed wave auto-progression: the current plan's durationMs gates
+      // the next setWave + spawn so waves 1..10 elapse ~4 minutes live.
+      waveElapsedMs += stepMs;
+      {
+        const currentPlan = planWave(waveSeed, currentWave);
+        if (waveElapsedMs >= currentPlan.durationMs) {
+          const next = currentWave + 1;
+          setWave(next);
+          waveElapsedMs = 0;
+          spawnWavePlan(planWave(waveSeed, next));
+        }
+      }
       const input = readFrame();
       if (input.dash && !prevDashHeld) {
         let dirX = input.moveX;
@@ -836,6 +891,10 @@ function boot(): void {
     window.__TAKELIGHT_STATE__ = state;
     if (state === 'RUNNING' && previous !== 'PAUSED') {
       runStartAtMs = Date.now();
+      waveSeed = (Date.now() % 4294967296) >>> 0;
+      if (waveSeed === 0) {
+        waveSeed = 42;
+      }
       loop.resetTick();
       window.__TAKELIGHT_TICK__ = 0;
       resetPlayer(player);
@@ -852,6 +911,9 @@ function boot(): void {
       hitstop.msLeft = 0;
       shake.trauma = 0;
       window.__TAKELIGHT_HITSTOP__ = 0;
+      setWave(1);
+      waveElapsedMs = 0;
+      spawnWavePlan(planWave(waveSeed, 1));
     }
     if (state === 'GAMEOVER') {
       void fetchAndPushBoard();
@@ -863,6 +925,44 @@ function boot(): void {
   };
   window.__TAKELIGHT_GAMEOVER__ = () => {
     store.set('GAMEOVER');
+  };
+  // Deterministic full-run hook for black-box probes: ensures RUNNING,
+  // pins wave 5, submits the clamp-safe 5000/wave-5 payload, then pushes
+  // the refreshed weekly board. Never throws; resolves status + match.
+  window.__TAKELIGHT_FULLRUN__ = async () => {
+    try {
+      setForcedOffline(false);
+      if (store.get() !== 'RUNNING') {
+        store.set('RUNNING');
+      }
+      setWave(5);
+      const payload = {
+        name: 'Fullrun',
+        score: 5000,
+        wave: 5,
+        duration_s: computeDurationS(runStartAtMs, Date.now(), 5),
+      };
+      const result = await submitRun(payload);
+      let rows: Awaited<ReturnType<typeof fetchWeeklyTop100>> = [];
+      try {
+        rows = await fetchWeeklyTop100();
+      } catch {
+        rows = [];
+      }
+      try {
+        menusHandle?.refreshBoard(rows);
+      } catch {
+        // refreshBoard never throws; ignore a detached handle.
+      }
+      const match =
+        rows.find(
+          (row) =>
+            row.name === 'Fullrun' && row.score === 5000 && row.wave === 5,
+        ) ?? null;
+      return { status: result.status, row: match };
+    } catch {
+      return { status: 'failed', row: null };
+    }
   };
   window.__TAKELIGHT_SET_FIRING__ = (on: boolean) => {
     window.__TAKELIGHT_FORCE_FIRE__ = on === true;
