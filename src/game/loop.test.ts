@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  HITSTOP_MS,
   MAX_FRAME_DELTA_MS,
   MAX_STEPS_PER_FRAME,
   STEP_MS,
   computeStepCount,
+  consumeHitstop,
   createFixedLoop,
+  createHitstop,
+  triggerHitstop,
 } from './loop';
 
 describe('accumulator', () => {
@@ -69,6 +73,30 @@ describe('accumulator', () => {
     expect(loop.getTick()).toBe(0);
   });
 
+  it('frozen frames hold the tick while render keeps running', () => {
+    let frozen = false;
+    const update = vi.fn();
+    const render = vi.fn();
+    const loop = createFixedLoop(
+      update,
+      render,
+      () => true,
+      () => frozen,
+    );
+    loop.frame(0);
+    loop.frame(STEP_MS * 2);
+    expect(loop.getTick()).toBe(2);
+    frozen = true;
+    loop.frame(STEP_MS * 4);
+    loop.frame(STEP_MS * 6);
+    expect(loop.getTick()).toBe(2);
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(render).toHaveBeenCalledTimes(4);
+    frozen = false;
+    loop.frame(STEP_MS * 6 + STEP_MS);
+    expect(loop.getTick()).toBe(3);
+  });
+
   it('update receives the fixed step and render runs every frame', () => {
     const update = vi.fn();
     const render = vi.fn();
@@ -78,5 +106,35 @@ describe('accumulator', () => {
     expect(update).toHaveBeenCalledWith(STEP_MS);
     // First frame (init) + one driven frame.
     expect(render).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('hitstop', () => {
+  it('60 ms consumes exactly 4 STEP_MS skips', () => {
+    const state = createHitstop();
+    triggerHitstop(state);
+    expect(state.msLeft).toBe(HITSTOP_MS);
+    let skips = 0;
+    while (consumeHitstop(state, STEP_MS)) {
+      skips += 1;
+    }
+    // 4 quanta freeze ~66.7 ms of sim, inside the 50-70 ms band.
+    expect(skips).toBe(4);
+    expect(4 * STEP_MS).toBeGreaterThanOrEqual(50);
+    expect(4 * STEP_MS).toBeLessThanOrEqual(70);
+  });
+
+  it('zero state never skips', () => {
+    const state = createHitstop();
+    expect(consumeHitstop(state, STEP_MS)).toBe(false);
+    expect(consumeHitstop(state, STEP_MS)).toBe(false);
+  });
+
+  it('over-consumption clamps at zero', () => {
+    const state = createHitstop();
+    triggerHitstop(state);
+    expect(consumeHitstop(state, HITSTOP_MS * 10)).toBe(true);
+    expect(state.msLeft).toBe(0);
+    expect(consumeHitstop(state, STEP_MS)).toBe(false);
   });
 });
