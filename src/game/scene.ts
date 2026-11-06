@@ -83,9 +83,17 @@ export function createArenaScene(): Arena {
   };
 }
 
+/** Hard DPR cap: mid-tier mobile GPUs cannot hold fps above 2x. */
+export const RENDERER_MAX_DPR = 2;
+
+/** Pure clamp so every renderer call site caps identically. */
+export function capDpr(dpr: number): number {
+  return Math.min(dpr, RENDERER_MAX_DPR);
+}
+
 /** ACES tone mapping with DPR capped at 2 and a fixed exposure. */
 export function configureRenderer(renderer: THREE.WebGLRenderer): void {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(capDpr(window.devicePixelRatio));
 }

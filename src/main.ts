@@ -13,7 +13,7 @@ import {
   submitRun,
 } from './net/leaderboard';
 import { CAMERA_PITCH_DEG, addShake, createFollowCamera, createShake, shakeOffset, updateFollowCamera, updateShake } from './game/camera';
-import { createArenaScene, configureRenderer } from './game/scene';
+import { createArenaScene, configureRenderer, capDpr } from './game/scene';
 import { clampPan, createAudioBank, playSfx, toAudioProbe, unlockAudio } from './game/audio';
 import { createPostFX, type PostFX } from './game/postfx';
 import { mountEffects, spawnDamageNumber, spawnHitMarker } from './ui/effects';
@@ -223,7 +223,7 @@ function sizeRenderer(
 ): void {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  const dpr = Math.min(window.devicePixelRatio, 2);
+  const dpr = capDpr(window.devicePixelRatio);
   renderer.setPixelRatio(dpr);
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   postfx?.setSize(window.innerWidth, window.innerHeight);
