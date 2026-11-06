@@ -152,6 +152,26 @@ export function fireBullet(
   return true;
 }
 
+/**
+ * Retire the tracer at index immediately (a killing hit removes its
+ * tracer the same step). Swap-remove, mirroring updateBullets below.
+ */
+export function despawnBulletAt(field: BulletField, index: number): void {
+  if (index < 0 || index >= field.alive) {
+    return;
+  }
+  const last = field.alive - 1;
+  if (index !== last) {
+    field.px[index] = field.px[last];
+    field.py[index] = field.py[last];
+    field.pz[index] = field.pz[last];
+    field.vx[index] = field.vx[last];
+    field.vz[index] = field.vz[last];
+    field.ttlMs[index] = field.ttlMs[last];
+  }
+  field.alive -= 1;
+}
+
 /** Fixed-step integrate + TTL decay with swap-remove; no allocation. */
 export function updateBullets(field: BulletField, dtMs: number): void {
   const dt = Math.max(dtMs, 0) / 1000;

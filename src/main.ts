@@ -13,6 +13,7 @@ import {
 } from './game/input';
 import { createTouchStickState, mountSticks } from './ui/sticks';
 import {
+  ARENA_HALF,
   HOVER_Y,
   createPlayer,
   createPlayerMesh,
@@ -26,6 +27,7 @@ import {
   BULLET_CAPACITY,
   clearBullets,
   createBulletField,
+  despawnBulletAt,
   syncBulletMeshes,
 } from './game/bullets';
 import {
@@ -38,13 +40,31 @@ import {
   resetWeapon,
   updateWeapon,
 } from './game/weapon';
+import {
+  ENEMY_CAPACITY,
+  clearEnemies,
+  createEnemyManager,
+  releaseEnemy,
+  spawnEnemy,
+  syncEnemyMeshes,
+  toEnemySnapshot,
+  updateEnemies,
+  type EnemySnapshot,
+} from './game/enemy';
+import {
+  OKADA_PARAMS,
+  OKADA_SCORE,
+  createOkadaMesh,
+} from './game/enemies/okada';
+import { damageEnemy, tryHitEnemy } from './game/combat';
 
 // Boot: renderer on the static canvas, the dusk arena with the hover
 // player, the pooled railgun tracers, the 60 Hz fixed-step loop wired to
 // the store, resize handling, keyboard drive, and the dev overlay. Game
 // code never touches the DOM: all window/DOM mirroring lives here.
 
-const NO_DRONES: never[] = [];
+/** Okada spawns on a ring this far from the player, clamped to the arena. */
+const ENEMY_SPAWN_RING = 12;
 
 declare global {
   interface Window {
@@ -74,6 +94,18 @@ declare global {
     };
     __TAKELIGHT_FORCE_FIRE__?: boolean;
     __TAKELIGHT_SET_FIRING__?: (on: boolean) => void;
+    __TAKELIGHT_SPAWN__?: (kind: string) => number;
+    __TAKELIGHT_ENEMIES__?: {
+      active: number;
+      sawTelegraph: boolean;
+      lastTelegraphMs: number;
+      kills: number;
+      list: EnemySnapshot[];
+    };
+    __TAKELIGHT_SCORE__?: {
+      kills: number;
+      score: number;
+    };
   }
 }
 
@@ -152,6 +184,20 @@ function boot(): void {
   const weapon = createWeapon();
   const onFire: () => void = () => {};
   const cameraTarget = new THREE.Vector3();
+
+  // Okada rusher pool: preallocated groups through the shared FSM base,
+  // stepped on the same fixed quantum; real SFX lands in a later issue
+  // so the telegraph hook only latches the probe flag (no-op for audio).
+  const enemies = createEnemyManager(scene, ENEMY_CAPACITY, createOkadaMesh);
+  let kills = 0;
+  let score = 0;
+  let sawTelegraph = false;
+  let lastTelegraphMs = 0;
+  const enemyHooks = {
+    onTelegraph: () => {
+      sawTelegraph = true;
+    },
+  };
 
   // Desktop drive: held codes plus hold-fire (button 0) and the last
   // cursor position, sampled fresh every sim step and every render.
@@ -247,7 +293,43 @@ function boot(): void {
       }
       prevDashHeld = input.dash;
       updatePlayer(player, input, stepMs);
-      updateWeapon(weapon, bullets, input, player, stepMs, NO_DRONES, onFire);
+      updateEnemies(enemies, player.pos, stepMs, enemyHooks);
+      // Railgun hits on the flat plane: retire the tracer on any hit,
+      // and on the killing blow pay out score and free the slot.
+      for (let i = bullets.alive - 1; i >= 0; i -= 1) {
+        const target = tryHitEnemy(
+          enemies.live,
+          bullets.px[i],
+          bullets.pz[i],
+          OKADA_PARAMS.hitRadius,
+        );
+        if (target !== null) {
+          const killed = damageEnemy(target, 1);
+          despawnBulletAt(bullets, i);
+          if (killed) {
+            kills += 1;
+            score += OKADA_SCORE;
+            releaseEnemy(enemies, target);
+          }
+        }
+      }
+      updateWeapon(
+        weapon,
+        bullets,
+        input,
+        player,
+        stepMs,
+        enemies.live,
+        onFire,
+      );
+      for (const enemy of enemies.live) {
+        if (enemy.state === 'telegraph') {
+          sawTelegraph = true;
+        }
+        if (enemy.lastTelegraphMs > lastTelegraphMs) {
+          lastTelegraphMs = enemy.lastTelegraphMs;
+        }
+      }
     },
     () => {
       syncPlayerMesh(playerMesh, player);
@@ -266,6 +348,7 @@ function boot(): void {
         updateFollowCamera(camera, player.pos);
       }
       syncBulletMeshes(bullets);
+      syncEnemyMeshes(enemies);
       // Muzzle flash at the barrel tip, fading over 60 ms.
       if (isMuzzleVisible(weapon)) {
         bullets.muzzle.position.set(
@@ -290,6 +373,14 @@ function boot(): void {
         poolSize: BULLET_CAPACITY,
         muzzleVisible: isMuzzleVisible(weapon),
       };
+      window.__TAKELIGHT_ENEMIES__ = {
+        active: enemies.live.length,
+        sawTelegraph,
+        lastTelegraphMs,
+        kills,
+        list: enemies.live.map(toEnemySnapshot),
+      };
+      window.__TAKELIGHT_SCORE__ = { kills, score };
       window.__TAKELIGHT_DASH__ = triggerDash;
       const now = performance.now();
       if (now - lastOverlayMs >= 250) {
@@ -322,6 +413,11 @@ function boot(): void {
       resetPlayer(player);
       clearBullets(bullets);
       resetWeapon(weapon);
+      clearEnemies(enemies);
+      kills = 0;
+      score = 0;
+      sawTelegraph = false;
+      lastTelegraphMs = 0;
       prevDashHeld = false;
     }
   });
@@ -335,6 +431,20 @@ function boot(): void {
   };
   window.__TAKELIGHT_SET_FIRING__ = (on: boolean) => {
     window.__TAKELIGHT_FORCE_FIRE__ = on === true;
+  };
+  window.__TAKELIGHT_SPAWN__ = (kind: string): number => {
+    if (store.get() !== 'RUNNING') {
+      return -1;
+    }
+    if (kind !== 'okada') {
+      return -1;
+    }
+    const x = Math.min(
+      Math.max(player.pos.x + ENEMY_SPAWN_RING, -ARENA_HALF),
+      ARENA_HALF,
+    );
+    const z = Math.min(Math.max(player.pos.z, -ARENA_HALF), ARENA_HALF);
+    return spawnEnemy(enemies, 'okada', OKADA_PARAMS, x, z).id;
   };
 
   window.addEventListener('resize', () => {
@@ -353,6 +463,14 @@ function boot(): void {
     poolSize: BULLET_CAPACITY,
     muzzleVisible: false,
   };
+  window.__TAKELIGHT_ENEMIES__ = {
+    active: 0,
+    sawTelegraph: false,
+    lastTelegraphMs: 0,
+    kills: 0,
+    list: [],
+  };
+  window.__TAKELIGHT_SCORE__ = { kills: 0, score: 0 };
   window.__TAKELIGHT_DASH__ = triggerDash;
   store.set('MENU');
 
