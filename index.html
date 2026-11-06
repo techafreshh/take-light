@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>take-light — neon-dusk jetpack arena</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #14102a;
+      }
+      #game-canvas {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #menu {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        color: #f5ecff;
+        font-family: system-ui, sans-serif;
+        text-align: center;
+        pointer-events: none;
+      }
+      #menu h1 {
+        margin: 0;
+        font-size: 2.5rem;
+        letter-spacing: 0.2em;
+      }
+      #menu p {
+        margin: 0;
+        font-size: 1.25rem;
+        letter-spacing: 0.4em;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game-canvas"></canvas>
+    <div id="menu" data-state="BOOT">
+      <h1>take-light</h1>
+      <p>MENU</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
