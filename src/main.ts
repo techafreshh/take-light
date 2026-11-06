@@ -2,7 +2,16 @@ import * as THREE from 'three';
 import { store, type GameState } from './app/state';
 import { hudStore } from './ui/store';
 import { mountHud } from './ui/hud';
-import { mountMenus } from './ui/menus';
+import { mountMenus, type MenusHandle, type PbEntry } from './ui/menus';
+import {
+  computeDurationS,
+  enqueueRun,
+  fetchWeeklyTop100,
+  flushQueue,
+  maybeWritePb,
+  setForcedOffline,
+  submitRun,
+} from './net/leaderboard';
 import { CAMERA_PITCH_DEG, addShake, createFollowCamera, createShake, shakeOffset, updateFollowCamera, updateShake } from './game/camera';
 import { createArenaScene, configureRenderer } from './game/scene';
 import { clampPan, createAudioBank, playSfx, toAudioProbe, unlockAudio } from './game/audio';
@@ -123,6 +132,7 @@ const KILL_SHAKE_TRAUMA = 0.35;
 
 declare global {
   interface Window {
+    __TAKELIGHT_OFFLINE__?: (offline: boolean) => void;
     __TAKELIGHT_STATE__?: string;
     __TAKELIGHT_TICK__?: number;
     __TAKELIGHT_START__?: () => void;
@@ -268,7 +278,66 @@ function boot(): void {
   const audioBank = createAudioBank();
   const fx = mountEffects();
   mountHud();
-  mountMenus();
+
+  // Leaderboard wiring: run-start tracking for duration_s, submit on the
+  // game-over save with offline queueing, weekly fetch into the menus
+  // board, and the forced-offline probe hook plus the online flush.
+  let runStartAtMs = 0;
+  let menusHandle: MenusHandle | null = null;
+
+  async function fetchAndPushBoard(): Promise<void> {
+    try {
+      const rows = await fetchWeeklyTop100();
+      menusHandle?.refreshBoard(rows);
+    } catch {
+      // fetchWeeklyTop100 never throws; repaint the queued suffix anyway.
+      menusHandle?.refreshBoard();
+    }
+  }
+
+  async function flushThenRefetch(): Promise<void> {
+    try {
+      await flushQueue();
+    } catch {
+      // flushQueue never throws; fall through to the board refetch.
+    }
+    await fetchAndPushBoard();
+  }
+
+  async function handleRunSubmit(entry: PbEntry): Promise<void> {
+    maybeWritePb(entry);
+    const payload = {
+      name: entry.name,
+      score: entry.score,
+      wave: entry.wave,
+      duration_s: computeDurationS(runStartAtMs, Date.now(), entry.wave),
+    };
+    const result = await submitRun(payload);
+    if (result.status === 'failed') {
+      // Queued results are already stored by submitRun; only unstored
+      // retryable failures fall back to the queue here.
+      enqueueRun(payload);
+    }
+    menusHandle?.refreshBoard();
+  }
+
+  menusHandle = mountMenus({
+    onSubmit: (entry) => {
+      void handleRunSubmit(entry);
+    },
+  });
+  window.__TAKELIGHT_OFFLINE__ = (offline: boolean) => {
+    setForcedOffline(offline === true);
+    if (offline === true) {
+      menusHandle?.refreshBoard();
+      return;
+    }
+    void flushThenRefetch();
+  };
+  window.addEventListener('online', () => {
+    void flushThenRefetch();
+  });
+  void fetchAndPushBoard();
   const postfx: PostFX | null = createPostFX(renderer, scene, camera);
 
   // Kinematic hover player owned here; the sim core stays DOM-free.
@@ -754,6 +823,7 @@ function boot(): void {
     menu.dataset.state = state;
     window.__TAKELIGHT_STATE__ = state;
     if (state === 'RUNNING' && previous !== 'PAUSED') {
+      runStartAtMs = Date.now();
       loop.resetTick();
       window.__TAKELIGHT_TICK__ = 0;
       resetPlayer(player);
@@ -770,6 +840,9 @@ function boot(): void {
       hitstop.msLeft = 0;
       shake.trauma = 0;
       window.__TAKELIGHT_HITSTOP__ = 0;
+    }
+    if (state === 'GAMEOVER') {
+      void fetchAndPushBoard();
     }
   });
 
