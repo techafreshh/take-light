@@ -113,17 +113,17 @@ export function updatePlayer(
   const dt = Math.max(dtMs, 0) / 1000;
 
   // Remember the last nonzero heading for idle dashes.
+  // Screen space: moveY -1 is up-screen = forward (world -Z).
   if (input.moveX !== 0 || input.moveY !== 0) {
     const headingLength = Math.hypot(input.moveX, input.moveY);
     player.headingX = input.moveX / headingLength;
-    // moveY +1 is forward = world -Z.
-    player.headingZ = -input.moveY / headingLength;
+    player.headingZ = input.moveY / headingLength;
   }
 
-  // Semi-implicit Euler: accelerate along the input vector ...
-  // (moveY +1 is forward = world -Z).
+  // Semi-implicit Euler: accelerate along the input vector
+  // (screen space maps directly: moveY -1 drives world -Z).
   player.vel.x += input.moveX * ACCEL * dt;
-  player.vel.z += -input.moveY * ACCEL * dt;
+  player.vel.z += input.moveY * ACCEL * dt;
 
   // ... exponential drag ...
   const dragFactor = Math.exp(-DRAG * dt);

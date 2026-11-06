@@ -16,8 +16,8 @@ import {
   updatePlayer,
 } from './player';
 
-const FORWARD = { moveX: 0, moveY: 1, dashPressed: false };
-const IDLE = { moveX: 0, moveY: 0, dashPressed: false };
+const FORWARD = { moveX: 0, moveY: -1, aimX: 0, aimY: 0, firing: false, dash: false };
+const IDLE = { moveX: 0, moveY: 0, aimX: 0, aimY: 0, firing: false, dash: false };
 
 function stepTimes(
   player: Parameters<typeof updatePlayer>[0],
