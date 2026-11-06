@@ -13,6 +13,7 @@ import {
 } from './game/input';
 import { createTouchStickState, mountSticks } from './ui/sticks';
 import {
+  HOVER_Y,
   createPlayer,
   createPlayerMesh,
   resetPlayer,
@@ -21,11 +22,29 @@ import {
   tryDash,
   updatePlayer,
 } from './game/player';
+import {
+  BULLET_CAPACITY,
+  clearBullets,
+  createBulletField,
+  syncBulletMeshes,
+} from './game/bullets';
+import {
+  CAMERA_RECOIL_UNITS,
+  MESH_RECOIL_UNITS,
+  createWeapon,
+  isMuzzleVisible,
+  muzzleOpacity,
+  recoilStrength,
+  resetWeapon,
+  updateWeapon,
+} from './game/weapon';
 
 // Boot: renderer on the static canvas, the dusk arena with the hover
-// player, the 60 Hz fixed-step loop wired to the store, resize handling,
-// keyboard drive, and the dev overlay. Game code never touches the DOM:
-// all window/DOM mirroring lives here.
+// player, the pooled railgun tracers, the 60 Hz fixed-step loop wired to
+// the store, resize handling, keyboard drive, and the dev overlay. Game
+// code never touches the DOM: all window/DOM mirroring lives here.
+
+const NO_DRONES: never[] = [];
 
 declare global {
   interface Window {
@@ -48,6 +67,13 @@ declare global {
     };
     __TAKELIGHT_DASH__?: () => boolean;
     __TAKELIGHT_INPUT__?: InputFrame;
+    __TAKELIGHT_BULLETS__?: {
+      active: number;
+      poolSize: number;
+      muzzleVisible: boolean;
+    };
+    __TAKELIGHT_FORCE_FIRE__?: boolean;
+    __TAKELIGHT_SET_FIRING__?: (on: boolean) => void;
   }
 }
 
@@ -117,6 +143,16 @@ function boot(): void {
   syncPlayerMesh(playerMesh, player);
   updateFollowCamera(camera, player.pos);
 
+  // Pooled railgun tracers: one InstancedMesh plus a reused muzzle
+  // sprite, and the autofire controller with a no-op audio hook (real
+  // SFX lands in a later issue).
+  const bullets = createBulletField();
+  scene.add(bullets.mesh);
+  scene.add(bullets.muzzle);
+  const weapon = createWeapon();
+  const onFire: () => void = () => {};
+  const cameraTarget = new THREE.Vector3();
+
   // Desktop drive: held codes plus hold-fire (button 0) and the last
   // cursor position, sampled fresh every sim step and every render.
   const pressedKeys = new Set<string>();
@@ -125,17 +161,28 @@ function boot(): void {
   let lastMouseY = 0;
   let hasMousePos = false;
   let prevDashHeld = false;
+  // Probe drive: external writes to __TAKELIGHT_INPUT__.firing or the
+  // force-fire flag latch in until the probe writes the opposite value,
+  // so self-publishes never stick after release.
+  let lastPublishedFiring = false;
+  let latchedFiring = false;
   // Touch drive: twin sticks + dash button mutate this frame in place.
   const touch = createTouchStickState();
   mountSticks(touch);
-  let currentFrame: InputFrame = { ...EMPTY_INPUT };
   function readFrame(): InputFrame {
     const keyboard = sampleKeyboard(pressedKeys);
     const rect = canvas.getBoundingClientRect();
     const mouseAim = hasMousePos
       ? sampleMouseAim(lastMouseX, lastMouseY, rect)
       : { x: 0, y: 0 };
-    return mergeInput(keyboard, mouseAim, mouseDown, touch);
+    const merged = mergeInput(keyboard, mouseAim, mouseDown, touch);
+    const force = window.__TAKELIGHT_FORCE_FIRE__ === true;
+    const external = window.__TAKELIGHT_INPUT__?.firing;
+    if (typeof external === 'boolean' && external !== lastPublishedFiring) {
+      latchedFiring = external;
+    }
+    const firing = merged.firing || force || latchedFiring;
+    return { ...merged, firing };
   }
   window.addEventListener('keydown', (event) => {
     if (
@@ -175,7 +222,6 @@ function boot(): void {
 
   function triggerDash(): boolean {
     const input = readFrame();
-    currentFrame = input;
     let dirX = input.moveX;
     let dirZ = input.moveY;
     if (dirX === 0 && dirZ === 0) {
@@ -190,7 +236,6 @@ function boot(): void {
   const loop = createFixedLoop(
     (stepMs) => {
       const input = readFrame();
-      currentFrame = input;
       if (input.dash && !prevDashHeld) {
         let dirX = input.moveX;
         let dirZ = input.moveY;
@@ -202,15 +247,49 @@ function boot(): void {
       }
       prevDashHeld = input.dash;
       updatePlayer(player, input, stepMs);
+      updateWeapon(weapon, bullets, input, player, stepMs, NO_DRONES, onFire);
     },
     () => {
       syncPlayerMesh(playerMesh, player);
-      updateFollowCamera(camera, player.pos);
+      // Decaying recoil kick opposite fire on top of the tilt.
+      const kick = recoilStrength(weapon);
+      if (kick > 0) {
+        playerMesh.position.x -= weapon.recoilDirX * MESH_RECOIL_UNITS * kick;
+        playerMesh.position.z -= weapon.recoilDirZ * MESH_RECOIL_UNITS * kick;
+        cameraTarget.set(
+          player.pos.x - weapon.recoilDirX * CAMERA_RECOIL_UNITS * kick,
+          player.pos.y,
+          player.pos.z - weapon.recoilDirZ * CAMERA_RECOIL_UNITS * kick,
+        );
+        updateFollowCamera(camera, cameraTarget);
+      } else {
+        updateFollowCamera(camera, player.pos);
+      }
+      syncBulletMeshes(bullets);
+      // Muzzle flash at the barrel tip, fading over 60 ms.
+      if (isMuzzleVisible(weapon)) {
+        bullets.muzzle.position.set(
+          player.pos.x + weapon.recoilDirX * 1.1,
+          HOVER_Y + 0.2,
+          player.pos.z + weapon.recoilDirZ * 1.1,
+        );
+        const material = bullets.muzzle.material as THREE.SpriteMaterial;
+        material.opacity = muzzleOpacity(weapon);
+        bullets.muzzle.visible = true;
+      } else {
+        bullets.muzzle.visible = false;
+      }
       window.__TAKELIGHT_TICK__ = loop.getTick();
       // Probe contracts refreshed every frame, never throttled.
-      currentFrame = readFrame();
+      const currentFrame = readFrame();
       window.__TAKELIGHT_INPUT__ = { ...currentFrame };
+      lastPublishedFiring = currentFrame.firing;
       window.__TAKELIGHT_PLAYER__ = toPlayerSnapshot(player);
+      window.__TAKELIGHT_BULLETS__ = {
+        active: bullets.alive,
+        poolSize: BULLET_CAPACITY,
+        muzzleVisible: isMuzzleVisible(weapon),
+      };
       window.__TAKELIGHT_DASH__ = triggerDash;
       const now = performance.now();
       if (now - lastOverlayMs >= 250) {
@@ -241,6 +320,8 @@ function boot(): void {
       loop.resetTick();
       window.__TAKELIGHT_TICK__ = 0;
       resetPlayer(player);
+      clearBullets(bullets);
+      resetWeapon(weapon);
       prevDashHeld = false;
     }
   });
@@ -252,6 +333,9 @@ function boot(): void {
   window.__TAKELIGHT_START__ = () => {
     store.set('RUNNING');
   };
+  window.__TAKELIGHT_SET_FIRING__ = (on: boolean) => {
+    window.__TAKELIGHT_FORCE_FIRE__ = on === true;
+  };
 
   window.addEventListener('resize', () => {
     sizeRenderer(renderer, camera);
@@ -261,6 +345,14 @@ function boot(): void {
   window.__TAKELIGHT_TICK__ = 0;
   window.__TAKELIGHT_PLAYER__ = toPlayerSnapshot(player);
   window.__TAKELIGHT_INPUT__ = { ...EMPTY_INPUT };
+  lastPublishedFiring = false;
+  latchedFiring = false;
+  window.__TAKELIGHT_FORCE_FIRE__ = false;
+  window.__TAKELIGHT_BULLETS__ = {
+    active: 0,
+    poolSize: BULLET_CAPACITY,
+    muzzleVisible: false,
+  };
   window.__TAKELIGHT_DASH__ = triggerDash;
   store.set('MENU');
 
