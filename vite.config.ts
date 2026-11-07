@@ -195,6 +195,7 @@ export default defineConfig({
   // measured total with headroom after the app shell splits out.
   // `howler` stays in the app chunk (too small for its own chunk).
   // No runtime, DOM, or probe-hook change: every byte ships identically.
+  // Caps are additionally enforced by scripts/check-chunks.mjs via `npm run build`.
   build: {
     chunkSizeWarningLimit: 800,
     rollupOptions: {

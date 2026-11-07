@@ -81,7 +81,7 @@ Waves 1–10 elapse `8 × 25 s + 2 × 10 s = 220 s` (~3.7 min), inside the
 - Netlify / static-only: same `dist` output plus `public/_redirects`
   (`/api/health → /api/health.json 200`) and the static payload
   `public/api/health.json` (`{"status":"ok"}`).
-- `npm run build` must stay clean; throttled-4G first-playable <10 s,
+- `npm run build` must stay clean (enforced chunk budget: split `three-vendor` chunk, entry ≤200 kB, total JS ≤850 kB, checked by `npm run build`); throttled-4G first-playable <10 s,
   60 fps on the device bar.
 
 ## Verification
