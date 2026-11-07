@@ -45,6 +45,44 @@ describe('menus overlays', () => {
     handle.unmount();
   });
 
+  it('PAUSED Restart routes via MENU to RUNNING while Resume goes direct', () => {
+    setupDom();
+    const game = createStore('MENU');
+    const hud = createHudStore();
+    const handle = mountMenus({ store: game, hud });
+    game.set('RUNNING');
+    game.set('PAUSED');
+    const trace: string[] = [];
+    const stop = game.subscribe((state) => {
+      trace.push(state);
+    });
+    trace.length = 0;
+    (document.getElementById('btn-restart') as HTMLButtonElement).click();
+    expect(game.get()).toBe('RUNNING');
+    expect(trace.slice(-2)).toEqual(['MENU', 'RUNNING']);
+    stop();
+    handle.unmount();
+  });
+
+  it('PAUSED Resume goes directly to RUNNING with no MENU hop', () => {
+    setupDom();
+    const game = createStore('MENU');
+    const hud = createHudStore();
+    const handle = mountMenus({ store: game, hud });
+    game.set('RUNNING');
+    game.set('PAUSED');
+    const trace: string[] = [];
+    const stop = game.subscribe((state) => {
+      trace.push(state);
+    });
+    trace.length = 0;
+    (document.getElementById('btn-resume') as HTMLButtonElement).click();
+    expect(game.get()).toBe('RUNNING');
+    expect(trace).toEqual(['RUNNING']);
+    stop();
+    handle.unmount();
+  });
+
   it('GAMEOVER shows the name-entry form', () => {
     setupDom();
     const game = createStore('MENU');

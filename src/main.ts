@@ -887,7 +887,10 @@ function boot(): void {
 
   // UI reflects the store; scene code never touches the DOM. Menus own
   // #menu visibility; this mirror keeps dataset/state probes in sync and
-  // resets the sim on every RUNNING entry except resume from PAUSED.
+  // resets the sim on every RUNNING entry except a direct resume from
+  // PAUSED. Pause-Restart reaches RUNNING via MENU (double set in the
+  // PAUSED restart handler), so previous === 'MENU' and it resets like
+  // any fresh run; only the direct PAUSED → RUNNING path skips the reset.
   let lastState: GameState = store.get();
   store.subscribe((state) => {
     const previous = lastState;
