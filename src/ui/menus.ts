@@ -137,6 +137,10 @@ export function mountMenus(options: MountMenusOptions = {}): MenusHandle {
       });
       const restart = makeButton('btn-restart', 'Restart');
       restart.addEventListener('click', () => {
+        // Pause-Restart routes via MENU so the RUNNING-entry reset in
+        // main.ts fires (previous === 'MENU'); Resume stays a direct
+        // PAUSED → RUNNING transition that skips the reset.
+        game.set('MENU');
         game.set('RUNNING');
         restart.blur();
       });
