@@ -126,6 +126,24 @@ export function createArenaScene(): Arena {
   };
 }
 
+/** Structural renderer surface sized by `sizeRenderer`. */
+export interface SizeRendererTarget {
+  setPixelRatio(dpr: number): void;
+  setSize(width: number, height: number, updateStyle?: boolean): void;
+}
+
+/** Structural camera surface synced by `sizeRenderer`. */
+export interface SizeCamera {
+  aspect: number;
+  updateProjectionMatrix(): void;
+}
+
+/** Structural composer surface synced by `sizeRenderer`. */
+export interface SizePostFX {
+  setSize(width: number, height: number): void;
+  setPixelRatio(dpr: number): void;
+}
+
 /** Hard DPR cap: mid-tier mobile GPUs cannot hold fps above 2x. */
 export const RENDERER_MAX_DPR = 2;
 
@@ -139,4 +157,26 @@ export function configureRenderer(renderer: THREE.WebGLRenderer): void {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
   renderer.setPixelRatio(capDpr(window.devicePixelRatio));
+}
+
+/**
+ * Size the renderer (and the optional bloom composer) for the given
+ * viewport. Pixel ratio goes before size on both backends so the boot
+ * buffer already uses the capped DPR with no resize needed.
+ */
+export function sizeRenderer(
+  renderer: SizeRendererTarget,
+  camera: SizeCamera,
+  width: number,
+  height: number,
+  devicePixelRatio: number,
+  postfx?: SizePostFX | null,
+): void {
+  const dpr = capDpr(devicePixelRatio);
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+  renderer.setPixelRatio(dpr);
+  renderer.setSize(width, height, false);
+  postfx?.setPixelRatio(dpr);
+  postfx?.setSize(width, height);
 }
