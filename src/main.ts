@@ -13,7 +13,7 @@ import {
   submitRun,
 } from './net/leaderboard';
 import { CAMERA_PITCH_DEG, addShake, createFollowCamera, createShake, shakeOffset, updateFollowCamera, updateShake } from './game/camera';
-import { createArenaScene, configureRenderer, capDpr } from './game/scene';
+import { createArenaScene, configureRenderer, sizeRenderer } from './game/scene';
 import { clampPan, createAudioBank, playSfx, toAudioProbe, unlockAudio } from './game/audio';
 import { createPostFX, type PostFX } from './game/postfx';
 import { mountEffects, spawnDamageNumber, spawnHitMarker } from './ui/effects';
@@ -222,20 +222,6 @@ function getOverlay(): HTMLElement {
   return overlay;
 }
 
-function sizeRenderer(
-  renderer: THREE.WebGLRenderer,
-  camera: THREE.PerspectiveCamera,
-  postfx?: PostFX | null,
-): void {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  const dpr = capDpr(window.devicePixelRatio);
-  renderer.setPixelRatio(dpr);
-  renderer.setSize(window.innerWidth, window.innerHeight, false);
-  postfx?.setSize(window.innerWidth, window.innerHeight);
-  postfx?.setPixelRatio(dpr);
-}
-
 function boot(): void {
   const canvas = getCanvas();
   const menu = getMenu();
@@ -281,7 +267,13 @@ function boot(): void {
   const camera = createFollowCamera(
     window.innerWidth / window.innerHeight,
   );
-  sizeRenderer(renderer, camera);
+  sizeRenderer(
+    renderer,
+    camera,
+    window.innerWidth,
+    window.innerHeight,
+    window.devicePixelRatio,
+  );
 
   // Juice layer: hitstop freeze, trauma shake, the Howler bank, the DOM
   // fx layer, and the bloom chain (null under headless GL falls back
@@ -352,6 +344,14 @@ function boot(): void {
   });
   void fetchAndPushBoard();
   const postfx: PostFX | null = createPostFX(renderer, scene, camera);
+  sizeRenderer(
+    renderer,
+    camera,
+    window.innerWidth,
+    window.innerHeight,
+    window.devicePixelRatio,
+    postfx,
+  );
 
   // Kinematic hover player owned here; the sim core stays DOM-free.
   const player = createPlayer();
@@ -1023,7 +1023,14 @@ function boot(): void {
   };
 
   window.addEventListener('resize', () => {
-    sizeRenderer(renderer, camera, postfx);
+    sizeRenderer(
+      renderer,
+      camera,
+      window.innerWidth,
+      window.innerHeight,
+      window.devicePixelRatio,
+      postfx,
+    );
   });
 
   window.__TAKELIGHT_STATE__ = 'MENU';
