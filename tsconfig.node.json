@@ -8,5 +8,5 @@
     "strict": true,
     "noEmit": true
   },
-  "include": ["vite.config.ts", "src/net/runsStub.ts", "src/net/clamp.ts", "src/net/submitStub.ts", "src/net/runsStore.ts"]
+  "include": ["vite.config.ts", "src/net/runsStub.ts", "src/net/clamp.ts", "src/net/submitStub.ts", "src/net/runsStore.ts", "supabase/functions/deno.d.ts", "supabase/functions/submit/index.ts"]
 }
