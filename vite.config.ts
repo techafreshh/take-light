@@ -187,6 +187,27 @@ export default defineConfig({
       },
     }),
   ],
+  // Chunk budget: three.js core + addons dominate the bundle (~744 kB
+  // minified, ~194 kB gzip). Split them into a separately cached
+  // `three-vendor` chunk so the PWA precache logs stay greppable and the
+  // app entry stays small; gzip bytes remain the perf signal for the
+  // later PWA/perf lap. 800 kB is the smallest round number above the
+  // measured total with headroom after the app shell splits out.
+  // `howler` stays in the app chunk (too small for its own chunk).
+  // No runtime, DOM, or probe-hook change: every byte ships identically.
+  build: {
+    chunkSizeWarningLimit: 800,
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          if (id.includes('node_modules/three')) {
+            return 'three-vendor';
+          }
+          return undefined;
+        },
+      },
+    },
+  },
   server: {
     host: true,
     port: 5173,
