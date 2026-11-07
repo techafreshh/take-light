@@ -7,8 +7,10 @@ import {
   EMPTY_INPUT,
   STICK_RADIUS_PX,
   stickVector,
+  type AimRect,
   type InputFrame,
 } from '../game/input';
+import { createElementRectCache } from './rectCache';
 
 const KNOB_PX = 54;
 
@@ -61,18 +63,20 @@ function readTouch(
   return null;
 }
 
-function zoneCenter(zone: HTMLElement): { x: number; y: number } {
-  const rect = zone.getBoundingClientRect();
+// Knob math takes a cached rect snapshot: it must never read layout in
+// the touchmove/pointermove hot path. Snapshots come from the per-zone
+// rect caches owned by mountSticks (refreshed on viewport events and once
+// per gesture claim), so the formula stays bit-identical to a live read.
+function zoneCenter(rect: AimRect): { x: number; y: number } {
   return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
 }
 
 function placeKnob(
-  zone: HTMLElement,
   knob: HTMLElement,
+  rect: { width: number; height: number },
   dxPx: number,
   dyPx: number,
 ): void {
-  const rect = zone.getBoundingClientRect();
   const cx = (rect.width - KNOB_PX) / 2 + dxPx;
   const cy = (rect.height - KNOB_PX) / 2 + dyPx;
   knob.style.left = `${cx.toString()}px`;
@@ -80,8 +84,11 @@ function placeKnob(
   knob.style.transform = 'none';
 }
 
-function resetKnob(zone: HTMLElement, knob: HTMLElement): void {
-  placeKnob(zone, knob, 0, 0);
+function resetKnob(
+  knob: HTMLElement,
+  rect: { width: number; height: number },
+): void {
+  placeKnob(knob, rect, 0, 0);
 }
 
 /**
@@ -103,8 +110,12 @@ export function mountSticks(state: InputFrame): () => void {
   root.appendChild(left.zone);
   root.appendChild(right.zone);
   root.appendChild(dashBtn);
-  resetKnob(left.zone, left.knob);
-  resetKnob(right.zone, right.knob);
+  // One rect cache per stick zone: the zones are position:fixed, so each
+  // snapshot stays valid until a viewport event or the next gesture claim.
+  const leftCache = createElementRectCache(left.zone);
+  const rightCache = createElementRectCache(right.zone);
+  resetKnob(left.knob, leftCache.get());
+  resetKnob(right.knob, rightCache.get());
 
   const leftSlot: StickSlot = { activeId: null, originX: 0, originY: 0, fromTouch: false };
   const rightSlot: StickSlot = { activeId: null, originX: 0, originY: 0, fromTouch: false };
@@ -115,7 +126,7 @@ export function mountSticks(state: InputFrame): () => void {
     const v = stickVector(dxPx, dyPx, STICK_RADIUS_PX);
     state.moveX = v.x;
     state.moveY = v.y;
-    placeKnob(left.zone, left.knob, v.x * STICK_RADIUS_PX, v.y * STICK_RADIUS_PX);
+    placeKnob(left.knob, leftCache.get(), v.x * STICK_RADIUS_PX, v.y * STICK_RADIUS_PX);
   }
 
   function driveRight(dxPx: number, dyPx: number): void {
@@ -123,14 +134,14 @@ export function mountSticks(state: InputFrame): () => void {
     state.aimX = v.x;
     state.aimY = v.y;
     state.firing = v.x !== 0 || v.y !== 0;
-    placeKnob(right.zone, right.knob, v.x * STICK_RADIUS_PX, v.y * STICK_RADIUS_PX);
+    placeKnob(right.knob, rightCache.get(), v.x * STICK_RADIUS_PX, v.y * STICK_RADIUS_PX);
   }
 
   function releaseLeft(): void {
     leftSlot.activeId = null;
     state.moveX = 0;
     state.moveY = 0;
-    resetKnob(left.zone, left.knob);
+    resetKnob(left.knob, leftCache.get());
   }
 
   function releaseRight(): void {
@@ -138,12 +149,12 @@ export function mountSticks(state: InputFrame): () => void {
     state.aimX = 0;
     state.aimY = 0;
     state.firing = false;
-    resetKnob(right.zone, right.knob);
+    resetKnob(right.knob, rightCache.get());
   }
 
   function claim(
     slot: StickSlot,
-    zone: HTMLElement,
+    rect: AimRect,
     clientX: number | null,
     clientY: number | null,
     id: number,
@@ -154,7 +165,7 @@ export function mountSticks(state: InputFrame): () => void {
     }
     // Synthetic events without coordinates fall back to the zone center
     // so a later drag still produces a deflection from a known origin.
-    const center = zoneCenter(zone);
+    const center = zoneCenter(rect);
     slot.originX = clientX ?? center.x;
     slot.originY = clientY ?? center.y;
     slot.activeId = id;
@@ -167,9 +178,12 @@ export function mountSticks(state: InputFrame): () => void {
     }
     event.preventDefault();
     const touch = readTouch(event, null);
+    // Exactly one layout read per gesture: pick up shifts since the
+    // previous claim; the rest of the gesture serves from the cache.
+    leftCache.refresh();
     claim(
       leftSlot,
-      left.zone,
+      leftCache.get(),
       touch === null ? null : touch.x,
       touch === null ? null : touch.y,
       touch === null ? -1 : touch.id,
@@ -184,9 +198,10 @@ export function mountSticks(state: InputFrame): () => void {
     }
     event.preventDefault();
     const touch = readTouch(event, null);
+    rightCache.refresh();
     claim(
       rightSlot,
-      right.zone,
+      rightCache.get(),
       touch === null ? null : touch.x,
       touch === null ? null : touch.y,
       touch === null ? -1 : touch.id,
@@ -227,7 +242,8 @@ export function mountSticks(state: InputFrame): () => void {
     if (event.pointerType === 'mouse' && event.button !== 0) {
       return;
     }
-    claim(leftSlot, left.zone, event.clientX, event.clientY, event.pointerId, false);
+    leftCache.refresh();
+    claim(leftSlot, leftCache.get(), event.clientX, event.clientY, event.pointerId, false);
     capture(left.zone, event.pointerId);
     driveLeft(0, 0);
   }
@@ -239,7 +255,8 @@ export function mountSticks(state: InputFrame): () => void {
     if (event.pointerType === 'mouse' && event.button !== 0) {
       return;
     }
-    claim(rightSlot, right.zone, event.clientX, event.clientY, event.pointerId, false);
+    rightCache.refresh();
+    claim(rightSlot, rightCache.get(), event.clientX, event.clientY, event.pointerId, false);
     capture(right.zone, event.pointerId);
     driveRight(0, 0);
   }
@@ -373,6 +390,16 @@ export function mountSticks(state: InputFrame): () => void {
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
   window.addEventListener('pointercancel', onPointerUp);
+  // Viewport refresh for both zone caches (alongside each cache's own
+  // subscription): one shared handler keeps snapshots current when
+  // layout shifts between gestures.
+  function refreshZones(): void {
+    leftCache.refresh();
+    rightCache.refresh();
+  }
+  window.addEventListener('resize', refreshZones);
+  window.addEventListener('scroll', refreshZones, { capture: true, passive: true });
+  window.addEventListener('orientationchange', refreshZones);
 
   return () => {
     left.zone.removeEventListener('touchstart', onLeftTouchStart);
@@ -387,6 +414,11 @@ export function mountSticks(state: InputFrame): () => void {
     window.removeEventListener('pointermove', onPointerMove);
     window.removeEventListener('pointerup', onPointerUp);
     window.removeEventListener('pointercancel', onPointerUp);
+    window.removeEventListener('resize', refreshZones);
+    window.removeEventListener('scroll', refreshZones, { capture: true });
+    window.removeEventListener('orientationchange', refreshZones);
+    leftCache.dispose();
+    rightCache.dispose();
     releaseLeft();
     releaseRight();
     dashTouchId = null;
