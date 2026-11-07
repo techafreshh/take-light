@@ -96,8 +96,8 @@ export interface EnemyManager {
 
 export type EnemyMeshFactory = () => THREE.Group;
 
-/** Preallocated slots per run; probes spawn at most a handful. */
-export const ENEMY_CAPACITY = 16;
+/** Preallocated slots per run; covers every budgeted plan plus rush bonus for waves 1-12 (worst case 30 at wave 12). */
+export const ENEMY_CAPACITY = 32;
 /** Fresh spawns hold still this long before acquiring the player. */
 export const IDLE_MS = 200;
 /** Default telegraph window; per-kind params.telegraphMs rules per enemy. */

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { STEP_MS } from './loop';
 import { damageEnemy } from './combat';
+import { planWave } from './director';
 import {
   IDLE_MS,
   createEnemyManager,
@@ -183,5 +184,20 @@ describe('damage', () => {
     const enemy = spawnEnemy(manager, 'okada', OKADA_PARAMS, 5, 0);
     expect(damageEnemy(enemy, 2)).toBe(true);
     expect(damageEnemy(enemy, 1)).toBe(false);
+  });
+});
+
+describe('pool fit', () => {
+  it('spawning the full wave-8 plan keeps every spawn live', () => {
+    const plan = planWave(42, 8);
+    const total =
+      plan.okada + plan.areaboy + plan.carrier + plan.rushBonusOkada;
+    const manager = createEnemyManager();
+    for (let i = 0; i < total; i += 1) {
+      spawnEnemy(manager, 'okada', OKADA_PARAMS, i, 0);
+    }
+    expect(manager.live).toHaveLength(total);
+    const ids = manager.live.map((enemy) => enemy.id);
+    expect(new Set(ids).size).toBe(total);
   });
 });
