@@ -80,6 +80,21 @@ describe('bullet TTL', () => {
     updateBullets(field, 500);
     expect(field.pz[0]).toBeCloseTo(-BULLET_SPEED * 0.5, 5);
   });
+
+  it('treats a negative dt as a no-op', () => {
+    const field = createBulletField();
+    fireBullet(field, origin(), forward());
+    const ttl = field.ttlMs[0];
+    const px = field.px[0];
+    const pz = field.pz[0];
+    updateBullets(field, -16);
+    expect(field.alive).toBe(1);
+    expect(field.ttlMs[0]).toBe(ttl);
+    expect(field.px[0]).toBe(px);
+    expect(field.pz[0]).toBe(pz);
+    updateBullets(field, BULLET_TTL_MS);
+    expect(field.alive).toBe(0);
+  });
 });
 
 describe('mesh sync', () => {

@@ -174,9 +174,10 @@ export function despawnBulletAt(field: BulletField, index: number): void {
 
 /** Fixed-step integrate + TTL decay with swap-remove; no allocation. */
 export function updateBullets(field: BulletField, dtMs: number): void {
-  const dt = Math.max(dtMs, 0) / 1000;
+  const step = Math.max(dtMs, 0);
+  const dt = step / 1000;
   for (let i = field.alive - 1; i >= 0; i -= 1) {
-    field.ttlMs[i] -= dtMs;
+    field.ttlMs[i] -= step;
     if (field.ttlMs[i] <= 0) {
       const last = field.alive - 1;
       if (i !== last) {
