@@ -26,12 +26,19 @@ interface SubmitStubRequest {
 // Serves GET /api/health -> 200 {"status":"ok"} on the single dev port,
 // so `npm run dev` alone satisfies the walking-skeleton health probe.
 // Shared by the dev server and the preview server below.
-function handleHealth(
+export function handleHealth(
   req: HealthRequest,
   res: HealthResponse,
   next: () => void,
 ): void {
-  if (req.url === '/api/health' && req.method === 'GET') {
+  let pathname: string;
+  try {
+    pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+  } catch {
+    next();
+    return;
+  }
+  if (pathname === '/api/health' && req.method === 'GET') {
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ status: 'ok' }));
