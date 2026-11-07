@@ -105,10 +105,8 @@ export function createFixedLoop(
           tick += 1;
           update(STEP_MS);
         }
-        if (steps >= MAX_STEPS_PER_FRAME) {
-          // Shed backlog instead of spiralling after a hitch.
-          accumulator = 0;
-        }
+        // Remainder stays banked for the next frames; catch-up is bounded
+        // by the MAX_FRAME_DELTA_MS delta clamp plus the per-frame step cap.
       }
       // Frozen (hitstop): hold the accumulator — no banking, no
       // stepping, no tick — while render and probes keep running.

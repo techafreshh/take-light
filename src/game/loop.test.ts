@@ -56,6 +56,26 @@ describe('accumulator', () => {
     expect(update).toHaveBeenCalledTimes(MAX_STEPS_PER_FRAME);
   });
 
+  it('shed backlog is caught up on following frames', () => {
+    const update = vi.fn();
+    const render = vi.fn();
+    const loop = createFixedLoop(update, render, () => true);
+    loop.frame(0);
+    // Two 95 ms frames: each runs exactly the per-frame cap and banks
+    // the ~11.67 ms / ~23.33 ms leftover (a single clamped frame can
+    // never bank a whole step, so the backlog is built over two frames).
+    loop.frame(95);
+    expect(update).toHaveBeenCalledTimes(MAX_STEPS_PER_FRAME);
+    loop.frame(190);
+    expect(update).toHaveBeenCalledTimes(MAX_STEPS_PER_FRAME * 2);
+    // Zero additional delta: only the banked remainder may run.
+    // Old zeroing code runs 0 here; carry-over runs the banked step.
+    loop.frame(190);
+    expect(update).toHaveBeenCalledTimes(MAX_STEPS_PER_FRAME * 2 + 1);
+    expect(loop.getTick()).toBe(MAX_STEPS_PER_FRAME * 2 + 1);
+    expect(render).toHaveBeenCalledTimes(4);
+  });
+
   it('tick only advances while running and resets on demand', () => {
     let gate = false;
     const loop = createFixedLoop(
