@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ENEMY_CAPACITY } from './enemy';
 import {
   AREABOY_COST,
   CARRIER_COST,
@@ -120,6 +121,29 @@ describe('rush hour', () => {
     expect(calm.rushHour).toBe(false);
     expect(calm.durationMs).toBe(WAVE_DURATION_MS);
     expect(calm.rushBonusOkada).toBe(0);
+  });
+});
+
+describe('pool fit', () => {
+  function planTotal(seed: number, wave: number): number {
+    const plan = planWave(seed, wave);
+    return plan.okada + plan.areaboy + plan.carrier + plan.rushBonusOkada;
+  }
+
+  it('wave-8 plan totals 19 and fits the enemy pool', () => {
+    const plan = planWave(42, 8);
+    const total =
+      plan.okada + plan.areaboy + plan.carrier + plan.rushBonusOkada;
+    expect(total).toBe(19);
+    expect(total).toBeLessThanOrEqual(ENEMY_CAPACITY);
+  });
+
+  it('every seed x wave in scope fits the enemy pool', () => {
+    for (let seed = 0; seed < 200; seed += 1) {
+      for (let wave = 1; wave <= 12; wave += 1) {
+        expect(planTotal(seed, wave)).toBeLessThanOrEqual(ENEMY_CAPACITY);
+      }
+    }
   });
 });
 

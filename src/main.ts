@@ -373,7 +373,7 @@ function boot(): void {
   };
   const cameraTarget = new THREE.Vector3();
 
-  // Shared roster pool: one manager (capacity 16) serves okada, areaboy
+  // Shared roster pool: one manager serves okada, areaboy
   // and carrier through per-kind mesh overrides; stepped on the same
   // fixed quantum; real SFX lands in a later issue so the telegraph
   // hook only latches the probe flag (no-op for audio).
