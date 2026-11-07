@@ -28,6 +28,7 @@ import {
   type InputFrame,
 } from './game/input';
 import { createTouchStickState, mountSticks } from './ui/sticks';
+import { createElementRectCache } from './ui/rectCache';
 import {
   ARENA_HALF,
   DASH_COOLDOWN_MS,
@@ -493,9 +494,13 @@ function boot(): void {
   // Touch drive: twin sticks + dash button mutate this frame in place.
   const touch = createTouchStickState();
   mountSticks(touch);
+  // Cached canvas rect: the canvas is position:fixed, so its geometry only
+  // changes on viewport events. readFrame runs ~120/sec (sim steps plus
+  // every render), so it must not force synchronous layout per call.
+  const canvasRectCache = createElementRectCache(canvas);
   function readFrame(): InputFrame {
     const keyboard = sampleKeyboard(pressedKeys);
-    const rect = canvas.getBoundingClientRect();
+    const rect = canvasRectCache.get();
     const mouseAim = hasMousePos
       ? sampleMouseAim(lastMouseX, lastMouseY, rect)
       : { x: 0, y: 0 };
@@ -1031,6 +1036,17 @@ function boot(): void {
       window.devicePixelRatio,
       postfx,
     );
+    canvasRectCache.refresh();
+  });
+  window.addEventListener(
+    'scroll',
+    () => {
+      canvasRectCache.refresh();
+    },
+    { capture: true, passive: true },
+  );
+  window.addEventListener('orientationchange', () => {
+    canvasRectCache.refresh();
   });
 
   window.__TAKELIGHT_STATE__ = 'MENU';
