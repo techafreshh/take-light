@@ -2,13 +2,15 @@
 // Validates leaderboard writes server-side and inserts via the service key.
 //
 // KEEP IN SYNC with src/net/clamp.ts (same constants, same validation order:
-// shape -> name 400 -> score ceiling 422 -> duration floor 422 -> 201).
+// shape -> name 400 -> score/duration types 400 -> worthless score 422 ->
+// score ceiling 422 -> duration floor 422 -> 201).
 // SUPABASE_SERVICE_KEY is read only from Deno.env here, never bundled
 // or referenced client-side.
 
 const MAX_SCORE_PER_WAVE = 2500;
 const MIN_DURATION_S_PER_WAVE = 20;
 const MAX_NAME_LENGTH = 40;
+const MIN_QUALIFYING_SCORE = 1;
 
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -88,6 +90,15 @@ function validateBody(body: unknown):
     return { ok: false, status: 400, code: 'INVALID_DURATION', message: 'duration_s must be a finite number >= 0.' };
   }
   const duration = Math.floor(rawDuration);
+
+  if (score < MIN_QUALIFYING_SCORE) {
+    return {
+      ok: false,
+      status: 422,
+      code: 'NON_QUALIFYING_SCORE',
+      message: `Score ${score} did not qualify: minimum qualifying score is ${MIN_QUALIFYING_SCORE}.`,
+    };
+  }
 
   const ceiling = maxScoreForWave(wave);
   if (score > ceiling) {

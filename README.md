@@ -94,6 +94,17 @@ curl -s http://localhost:5173/api/health  # {"status":"ok"}
 await window.__TAKELIGHT_FULLRUN__()
 # → { status: 'ok', row: { name: 'Fullrun', score: 5000, wave: 5, ... } }
 
+# submit clamp boundary (dev or preview serving the same-origin stub)
+./scripts/verify-submit-clamp.sh  # 201 / 422 / 422 / 422
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:5173/functions/v1/submit \
+  -H 'Content-Type: application/json' -d '{"name":"Ngozi","score":12400,"wave":8,"duration_s":212}'  # 201
+curl -s -X POST http://localhost:5173/functions/v1/submit \
+  -H 'Content-Type: application/json' -d '{"name":"Techa","score":0,"wave":2,"duration_s":60}'  # 422 NON_QUALIFYING_SCORE
+curl -s -X POST http://localhost:5173/functions/v1/submit \
+  -H 'Content-Type: application/json' -d '{"name":"Hax","score":9999999,"wave":2,"duration_s":60}'  # 422 IMPLAUSIBLE_SCORE
+curl -s -X POST http://localhost:5173/functions/v1/submit \
+  -H 'Content-Type: application/json' -d '{"name":"Speedy","score":100,"wave":8,"duration_s":5}'  # 422 IMPLAUSIBLE_DURATION
+
 # suites
 npx vitest run   # director, score, pool, clamp suites green
 ```

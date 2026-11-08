@@ -4,9 +4,12 @@
 import { store, type Store } from '../app/state';
 import { hudStore, type HudStore } from './store';
 import {
+  MIN_QUALIFYING_SCORE,
+  isQualifyingRun,
   maybeWritePb,
   pbDisplayText,
   type LeaderboardRow,
+  type SubmitResult,
 } from '../net/leaderboard';
 
 export interface PbEntry {
@@ -18,7 +21,7 @@ export interface PbEntry {
 }
 
 export interface MountMenusOptions {
-  onSubmit?: (entry: PbEntry) => void;
+  onSubmit?: (entry: PbEntry) => void | Promise<SubmitResult | void>;
   store?: Store;
   hud?: HudStore;
 }
@@ -184,7 +187,7 @@ export function mountMenus(options: MountMenusOptions = {}): MenusHandle {
         restart.blur();
       });
 
-      function handleSubmit(event: Event): void {
+      async function handleSubmit(event: Event): Promise<void> {
         event.preventDefault();
         const raw = input.value ?? '';
         const name = raw.trim().slice(0, 24);
@@ -200,10 +203,33 @@ export function mountMenus(options: MountMenusOptions = {}): MenusHandle {
           kills: live.kills,
           at: new Date().toISOString(),
         };
+        // Worthless runs never board: keep the local personal best, name
+        // the cause in .error, and skip both .saved and the network submit.
+        if (!isQualifyingRun(entry)) {
+          maybeWritePb(entry);
+          error.textContent =
+            `Run did not qualify: ${entry.score} pts earns no board place — score at least ${MIN_QUALIFYING_SCORE} pt to enter the weekly board.`;
+          return;
+        }
         // Personal best writes synchronously so the pb store is filled in
         // the same task as the click, even while offline.
         maybeWritePb(entry);
         error.textContent = '';
+        if (onSubmit !== undefined) {
+          const outcome: SubmitResult | void = await onSubmit(entry);
+          if (outcome !== undefined) {
+            if (outcome.status === 'rejected') {
+              error.textContent =
+                'Run rejected by the board — no board entry was stored.';
+              return;
+            }
+            if (outcome.status === 'failed') {
+              error.textContent =
+                'Could not reach the board — run queued for retry.';
+              return;
+            }
+          }
+        }
         let saved = panel.querySelector('.saved');
         if (saved === null) {
           saved = document.createElement('div');
@@ -211,9 +237,6 @@ export function mountMenus(options: MountMenusOptions = {}): MenusHandle {
           panel.insertBefore(saved, restart);
         }
         saved.textContent = `Best saved: ${name}`;
-        if (onSubmit !== undefined) {
-          onSubmit(entry);
-        }
       }
 
       form.addEventListener('submit', handleSubmit);

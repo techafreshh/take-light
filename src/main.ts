@@ -8,9 +8,11 @@ import {
   enqueueRun,
   fetchWeeklyTop100,
   flushQueue,
+  isQualifyingRun,
   maybeWritePb,
   setForcedOffline,
   submitRun,
+  type SubmitResult,
 } from './net/leaderboard';
 import { CAMERA_PITCH_DEG, addShake, createFollowCamera, createShake, shakeOffset, updateFollowCamera, updateShake } from './game/camera';
 import { createArenaScene, configureRenderer, sizeRenderer } from './game/scene';
@@ -342,7 +344,13 @@ function boot(): void {
     await fetchAndPushBoard();
   }
 
-  async function handleRunSubmit(entry: PbEntry): Promise<void> {
+  async function handleRunSubmit(entry: PbEntry): Promise<SubmitResult> {
+    // Worthless runs never POST or queue: local best only, then repaint.
+    if (!isQualifyingRun(entry)) {
+      maybeWritePb(entry);
+      menusHandle?.refreshBoard();
+      return { status: 'rejected' };
+    }
     maybeWritePb(entry);
     const payload = {
       name: entry.name,
@@ -357,12 +365,11 @@ function boot(): void {
       enqueueRun(payload);
     }
     menusHandle?.refreshBoard();
+    return result;
   }
 
   menusHandle = mountMenus({
-    onSubmit: (entry) => {
-      void handleRunSubmit(entry);
-    },
+    onSubmit: (entry) => handleRunSubmit(entry),
   });
   window.__TAKELIGHT_OFFLINE__ = (offline: boolean) => {
     setForcedOffline(offline === true);

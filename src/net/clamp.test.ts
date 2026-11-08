@@ -161,14 +161,23 @@ describe('validateSubmit', () => {
     }
   });
 
-  it('passes a zero score and rejects negative scores with 400', () => {
-    const zero = validateSubmit({
-      name: 'Zero',
-      score: 0,
-      wave: 1,
-      duration_s: 60,
-    });
-    expect(zero.ok).toBe(true);
+  it('rejects zero scores with 422 NON_QUALIFYING_SCORE at wave 1 and 2', () => {
+    for (const wave of [1, 2]) {
+      const result = validateSubmit({
+        name: 'Zero',
+        score: 0,
+        wave,
+        duration_s: 60,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.status).toBe(422);
+        expect(result.code).toBe('NON_QUALIFYING_SCORE');
+      }
+    }
+  });
+
+  it('rejects negative scores with 400', () => {
     const negative = validateSubmit({
       name: 'Neg',
       score: -5,
@@ -178,6 +187,33 @@ describe('validateSubmit', () => {
     expect(negative.ok).toBe(false);
     if (!negative.ok) {
       expect(negative.status).toBe(400);
+    }
+  });
+
+  it('passes a score of 1 at the qualifying floor', () => {
+    const result = validateSubmit({
+      name: 'One',
+      score: 1,
+      wave: 1,
+      duration_s: 60,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.row.score).toBe(1);
+    }
+  });
+
+  it('checks worthless scores before the ceiling and duration floor', () => {
+    const result = validateSubmit({
+      name: 'Zero',
+      score: 0,
+      wave: 8,
+      duration_s: 5,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(422);
+      expect(result.code).toBe('NON_QUALIFYING_SCORE');
     }
   });
 
@@ -243,6 +279,16 @@ describe('submit router', () => {
     ]) {
       expect(body).toHaveProperty(key);
     }
+  });
+
+  it('returns 422 containing NON_QUALIFYING_SCORE for a zero payload', () => {
+    const routed = routeSubmitRequest(
+      'POST',
+      '/functions/v1/submit',
+      JSON.stringify({ name: 'Techa', score: 0, wave: 2, duration_s: 60 }),
+    );
+    expect(routed?.status).toBe(422);
+    expect(routed?.body).toContain('NON_QUALIFYING_SCORE');
   });
 
   it('returns 422 containing IMPLAUSIBLE_SCORE for the forged payload', () => {

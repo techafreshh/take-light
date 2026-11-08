@@ -3,13 +3,33 @@
 // personal-best read/maybe-write. No DOM/three usage beyond the browser
 // storage/navigator/fetch globals; never throws on corrupt input.
 
-import { MAX_NAME_LENGTH, minDurationForWave } from './clamp';
+import {
+  MAX_NAME_LENGTH,
+  MIN_QUALIFYING_SCORE,
+  minDurationForWave,
+} from './clamp';
 import {
   anonHeaders,
   restRunsUrl,
   submitFunctionUrl,
 } from './supabaseClient';
 import { PB_STORAGE_KEY } from '../ui/store';
+
+/** Re-exported qualifying floor so the game-over save shares one rule. */
+export { MIN_QUALIFYING_SCORE };
+
+/**
+ * Shared qualifying rule: only runs scoring at least MIN_QUALIFYING_SCORE
+ * board. menus.ts and main.ts gate on this so worthless runs never POST
+ * or queue; normalizeRow drops legacy zeros the same way.
+ */
+export function isQualifyingRun(entry: { score: number }): boolean {
+  return (
+    typeof entry.score === 'number' &&
+    Number.isFinite(entry.score) &&
+    Math.floor(entry.score) >= MIN_QUALIFYING_SCORE
+  );
+}
 
 /** Offline queue localStorage key holding a JSON array of QueuedRun. */
 export const QUEUE_STORAGE_KEY = 'take-light:queue';
@@ -135,7 +155,9 @@ export function normalizeQueuedRun(entry: QueuedRun): QueuedRun {
   };
 }
 
-/** Corruption-tolerant read: unparseable or non-array storage reads empty. */
+/**
+ * Corruption-tolerant read: unparseable or non-array storage reads empty.
+ */
 export function loadQueue(): QueuedRun[] {
   const storage = queueStorage();
   if (storage === null) {
@@ -242,6 +264,10 @@ function normalizeRow(item: unknown): LeaderboardRow | null {
     typeof rawScore === 'number' && Number.isFinite(rawScore)
       ? Math.floor(rawScore)
       : 0;
+  // Worthless runs never board, even legacy rows stored before the clamp.
+  if (score < MIN_QUALIFYING_SCORE) {
+    return null;
+  }
   const rawWave = record['wave'];
   const wave =
     typeof rawWave === 'number' && Number.isFinite(rawWave)

@@ -116,7 +116,7 @@ describe('menus overlays', () => {
     handle.unmount();
   });
 
-  it('submitting Ngozi writes synchronously with the name stored', () => {
+  it('submitting Ngozi writes synchronously with the name stored', async () => {
     setupDom();
     const game = createStore('MENU');
     const hud = createHudStore();
@@ -141,6 +141,68 @@ describe('menus overlays', () => {
     expect(stored).not.toBeNull();
     expect(stored ?? '').toContain('Ngozi');
     expect(onSubmit).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      document.querySelector('#menu .saved')?.textContent ?? '',
+    ).toContain('Best saved: Ngozi');
+    handle.unmount();
+  });
+
+  it('zero-score save shows non-qualifying feedback without submit or .saved', async () => {
+    setupDom();
+    const game = createStore('MENU');
+    const hud = createHudStore();
+    hud.push({
+      score: 0,
+      multiplier: 1,
+      kills: 0,
+      wave: 2,
+      shields: 0,
+      maxShields: 3,
+      dashCooldownMs: 0,
+      dashCooldownMaxMs: 1200,
+    });
+    const onSubmit = vi.fn();
+    const handle = mountMenus({ store: game, hud, onSubmit });
+    game.set('RUNNING');
+    game.set('GAMEOVER');
+    const input = document.getElementById('pb-name') as HTMLInputElement;
+    input.value = 'Techa';
+    (document.getElementById('pb-submit') as HTMLButtonElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const error = document.querySelector('#menu .error');
+    expect(error?.textContent ?? '').toMatch(/did not qualify|non-qualifying/i);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(document.querySelector('#menu .saved')).toBeNull();
+    handle.unmount();
+  });
+
+  it('server rejection surfaces feedback instead of silent success', async () => {
+    setupDom();
+    const game = createStore('MENU');
+    const hud = createHudStore();
+    hud.push({
+      score: 1250,
+      multiplier: 3,
+      kills: 9,
+      wave: 4,
+      shields: 0,
+      maxShields: 3,
+      dashCooldownMs: 0,
+      dashCooldownMaxMs: 1200,
+    });
+    const onSubmit = vi.fn(async () => ({ status: 'rejected' as const }));
+    const handle = mountMenus({ store: game, hud, onSubmit });
+    game.set('RUNNING');
+    game.set('GAMEOVER');
+    const input = document.getElementById('pb-name') as HTMLInputElement;
+    input.value = 'Ngozi';
+    (document.getElementById('pb-submit') as HTMLButtonElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const error = document.querySelector('#menu .error');
+    expect(error?.textContent ?? '').toMatch(/rejected/i);
+    expect(document.querySelector('#menu .saved')).toBeNull();
     handle.unmount();
   });
 
