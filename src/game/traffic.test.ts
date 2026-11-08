@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { STEP_MS } from './loop';
 import {
   DANFO_COUNT,
+  DANFO_LIGHTS_PER_VAN,
   DANFO_WRAP_Z,
   createDanfoTraffic,
   danfoInitialZ,
@@ -99,6 +100,8 @@ describe('danfo traffic update', () => {
     const zRef = traffic.z;
     const speedRef = traffic.speed;
     const matrixLength = traffic.mesh.instanceMatrix.array.length;
+    const glassLength = traffic.glassMesh.instanceMatrix.array.length;
+    const lightLength = traffic.lightMesh.instanceMatrix.array.length;
     for (let i = 0; i < 600; i += 1) {
       updateDanfoTraffic(traffic, STEP_MS);
     }
@@ -106,6 +109,51 @@ describe('danfo traffic update', () => {
     expect(traffic.z).toBe(zRef);
     expect(traffic.speed).toBe(speedRef);
     expect(traffic.mesh.instanceMatrix.array.length).toBe(matrixLength);
+    expect(traffic.glassMesh.instanceMatrix.array.length).toBe(glassLength);
+    expect(traffic.lightMesh.instanceMatrix.array.length).toBe(lightLength);
     expect(traffic.count).toBe(DANFO_COUNT);
+  });
+});
+
+describe('danfo dressing', () => {
+  it('rides a glass band and a light pair on every van', () => {
+    const traffic = createDanfoTraffic();
+    expect(traffic.glassMesh).toBeInstanceOf(THREE.InstancedMesh);
+    expect(traffic.glassMesh.count).toBe(DANFO_COUNT);
+    expect(traffic.lightMesh).toBeInstanceOf(THREE.InstancedMesh);
+    expect(traffic.lightMesh.count).toBe(
+      DANFO_COUNT * DANFO_LIGHTS_PER_VAN,
+    );
+    expect(traffic.lightMesh.material).toBeInstanceOf(
+      THREE.MeshBasicMaterial,
+    );
+    expect(traffic.lightMesh.instanceColor).not.toBeNull();
+  });
+
+  it('keeps glass and lights in lockstep with body x/z', () => {
+    const traffic = createDanfoTraffic();
+    updateDanfoTraffic(traffic, STEP_MS);
+    const matrix = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    for (let i = 0; i < traffic.count; i += 1) {
+      traffic.mesh.getMatrixAt(i, matrix);
+      matrix.decompose(pos, quat, scale);
+      expect(pos.x).toBeCloseTo(traffic.x[i], 5);
+      expect(pos.z).toBeCloseTo(traffic.z[i], 5);
+      traffic.glassMesh.getMatrixAt(i, matrix);
+      matrix.decompose(pos, quat, scale);
+      expect(pos.x).toBeCloseTo(traffic.x[i], 5);
+      expect(pos.z).toBeCloseTo(traffic.z[i], 5);
+      traffic.lightMesh.getMatrixAt(i * DANFO_LIGHTS_PER_VAN, matrix);
+      matrix.decompose(pos, quat, scale);
+      expect(pos.x).toBeCloseTo(traffic.x[i], 5);
+      expect(pos.z).toBeCloseTo(traffic.z[i] + 2.28, 5);
+      traffic.lightMesh.getMatrixAt(i * DANFO_LIGHTS_PER_VAN + 1, matrix);
+      matrix.decompose(pos, quat, scale);
+      expect(pos.x).toBeCloseTo(traffic.x[i], 5);
+      expect(pos.z).toBeCloseTo(traffic.z[i] - 2.28, 5);
+    }
   });
 });
