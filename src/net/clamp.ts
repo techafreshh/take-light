@@ -9,6 +9,9 @@ export const MIN_DURATION_S_PER_WAVE = 20;
 /** Over-long names truncate instead of failing. */
 export const MAX_NAME_LENGTH = 40;
 
+/** Minimum qualifying score: runs below this never board. */
+export const MIN_QUALIFYING_SCORE = 1;
+
 /** Normalized submit fields after validation and clamping. */
 export interface SubmitRow {
   name: string;
@@ -59,7 +62,9 @@ function fail(status: number, code: string, message: string): SubmitError {
 
 /**
  * Validate a parsed submit body. Order is fixed: shape -> name (400) ->
- * score ceiling (422 IMPLAUSIBLE_SCORE) -> duration floor
+ * score/duration types (400 INVALID_SCORE/INVALID_DURATION) -> worthless
+ * score (422 NON_QUALIFYING_SCORE) -> score ceiling
+ * (422 IMPLAUSIBLE_SCORE) -> duration floor
  * (422 IMPLAUSIBLE_DURATION). Names trim (over-long truncate); wave floors
  * to >= 1; score/duration_s floor and must be finite and >= 0.
  */
@@ -107,6 +112,14 @@ export function validateSubmit(body: unknown): ValidateSubmitResult {
     );
   }
   const duration = Math.floor(rawDuration);
+
+  if (score < MIN_QUALIFYING_SCORE) {
+    return fail(
+      422,
+      'NON_QUALIFYING_SCORE',
+      `Score ${score} did not qualify: minimum qualifying score is ${MIN_QUALIFYING_SCORE}.`,
+    );
+  }
 
   const ceiling = maxScoreForWave(wave);
   if (score > ceiling) {

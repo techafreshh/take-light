@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { PB_STORAGE_KEY } from '../ui/store';
 import { routeSubmitRequest } from './submitStub';
 import {
+  MIN_QUALIFYING_SCORE,
   QUEUE_STORAGE_KEY,
   buildWeeklyRunsParams,
   buildWeeklyRunsUrl,
@@ -14,6 +15,7 @@ import {
   fetchWeeklyTop100,
   flushQueue,
   isForcedOffline,
+  isQualifyingRun,
   loadQueue,
   maybeWritePb,
   normalizeQueuedRun,
@@ -164,6 +166,28 @@ describe('weekly fetch', () => {
     expect(seenUrl).toContain('created_at=gte.');
   });
 
+  it('drops zero-score rows so worthless runs never top the board', async () => {
+    const rows = [
+      {
+        name: 'Real',
+        score: 500,
+        wave: 3,
+        duration_s: 80,
+        created_at: '2024-05-14T00:00:00.000Z',
+      },
+      {
+        name: 'Zero',
+        score: 0,
+        wave: 2,
+        duration_s: 60,
+        created_at: '2024-05-14T00:00:00.000Z',
+      },
+    ];
+    const result = await fetchWeeklyTop100(rowsStub(rows));
+    expect(result).toHaveLength(1);
+    expect(result[0]?.name).toBe('Real');
+  });
+
   it('returns [] on failure, non-array, or bad status without throwing', async () => {
     const failing: FetchImpl = (() =>
       Promise.reject(new Error('down'))) as FetchImpl;
@@ -226,6 +250,24 @@ describe('submit and flush', () => {
     );
     expect(result.status).toBe('ok');
     expect(JSON.parse(seen[0] ?? '{}').duration_s).toBeGreaterThanOrEqual(20);
+  });
+
+  it('submitRun rejects a zero payload without queueing poison', async () => {
+    const result = await submitRun(
+      { name: 'Zero', score: 0, wave: 2, duration_s: 60 },
+      routeStub(),
+    );
+    expect(result.status).toBe('rejected');
+    expect(loadQueue()).toHaveLength(0);
+  });
+
+  it('isQualifyingRun gates on the shared floor', () => {
+    expect(MIN_QUALIFYING_SCORE).toBe(1);
+    expect(isQualifyingRun({ score: 0 })).toBe(false);
+    expect(isQualifyingRun({ score: 0.9 })).toBe(false);
+    expect(isQualifyingRun({ score: 1 })).toBe(true);
+    expect(isQualifyingRun({ score: 5000 })).toBe(true);
+    expect(isQualifyingRun({ score: Number.NaN })).toBe(false);
   });
 
   it('network failure returns failed for the caller fallback', async () => {
