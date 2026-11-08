@@ -143,6 +143,29 @@ describe('menus overlays', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
     handle.unmount();
   });
+
+  it('GAMEOVER summary reads the live wave (Wave 10)', () => {
+    setupDom();
+    const game = createStore('MENU');
+    const hud = createHudStore();
+    hud.push({
+      score: 5000,
+      multiplier: 2,
+      kills: 12,
+      wave: 10,
+      shields: 0,
+      maxShields: 3,
+      dashCooldownMs: 0,
+      dashCooldownMaxMs: 1200,
+    });
+    const handle = mountMenus({ store: game, hud });
+    game.set('RUNNING');
+    game.set('GAMEOVER');
+    expect(document.getElementById('go-summary')?.textContent).toContain(
+      'Wave 10',
+    );
+    handle.unmount();
+  });
 });
 
 describe('leaderboard board and personal best', () => {
