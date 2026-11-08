@@ -100,6 +100,8 @@ export type EnemyMeshFactory = () => THREE.Group;
 export const ENEMY_CAPACITY = 32;
 /** Fresh spawns hold still this long before acquiring the player. */
 export const IDLE_MS = 200;
+/** Mesh scale pop applied to telegraphing enemies; geometric, not photometric. */
+export const TELEGRAPH_SCALE = 1.3;
 /** Default telegraph window; per-kind params.telegraphMs rules per enemy. */
 export const TELEGRAPH_MS = 450;
 
@@ -273,6 +275,7 @@ export function spawnEnemy(
   slot.active = true;
   if (slot.mesh !== null) {
     slot.mesh.visible = true;
+    slot.mesh.scale.set(1, 1, 1);
     slot.mesh.position.set(slot.x, HOVER_Y, slot.z);
   }
   if (slot.bodyMat !== null) {
@@ -468,6 +471,9 @@ export function syncEnemyMeshes(manager: EnemyManager): void {
     }
     enemy.mesh.visible = true;
     enemy.mesh.position.set(enemy.x, HOVER_Y, enemy.z);
+    const pop =
+      enemy.state === 'telegraph' ? TELEGRAPH_SCALE : 1;
+    enemy.mesh.scale.set(pop, pop, pop);
     if (enemy.bodyMat !== null) {
       enemy.bodyMat.emissiveIntensity = enemy.glowIntensity;
     }

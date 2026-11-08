@@ -68,6 +68,23 @@ describe('audio bank', () => {
     }
   });
 
+  it('telegraph warning lasts >= 0.4 s of audible audio', () => {
+    expect(SFX_NAMES).toContain('telegraph');
+    const uri = synthSfxDataUri('telegraph');
+    const base64 = uri.slice('data:audio/wav;base64,'.length);
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const view = new DataView(bytes.buffer);
+    const sampleRate = view.getUint32(24, true);
+    const dataBytes = view.getUint32(40, true);
+    const frames = dataBytes / 2;
+    expect(sampleRate).toBeGreaterThan(0);
+    expect(frames / sampleRate).toBeGreaterThanOrEqual(0.4);
+  });
+
   it('stub mode never throws without an AudioContext', () => {
     expect(audioAvailable()).toBe(false);
     const bank = createAudioBank();
