@@ -1,5 +1,13 @@
 import * as THREE from 'three';
-import { createDanfoTraffic, createPylons, type DanfoTraffic } from './props';
+import {
+  createCity,
+  createDanfoTraffic,
+  createEdgeGlow,
+  createLagoonGlints,
+  createLaneMarkings,
+  createPylons,
+  type DanfoTraffic,
+} from './props';
 import { DUSK_EQUIRECT_URL } from './assets';
 
 // Low-poly dusk arena: blue water plane, dark highway strip, instanced
@@ -18,10 +26,12 @@ export interface ArenaLights {
   sun: THREE.DirectionalLight;
   ambient: THREE.AmbientLight;
   pylonEmissive: THREE.MeshStandardMaterial;
+  cityEmissive: THREE.MeshStandardMaterial;
   hemiBase: number;
   sunBase: number;
   ambientBase: number;
   pylonBase: number;
+  cityBase: number;
 }
 
 export interface Arena {
@@ -29,6 +39,10 @@ export interface Arena {
   water: THREE.Mesh;
   highway: THREE.Mesh;
   pylons: THREE.InstancedMesh;
+  city: THREE.InstancedMesh;
+  laneMarkings: THREE.InstancedMesh;
+  edgeGlow: THREE.Group;
+  glints: THREE.InstancedMesh;
   traffic: DanfoTraffic;
   lights: ArenaLights;
   /** Fire-and-forget PMREM dusk environment; lights carry a fallback. */
@@ -101,24 +115,45 @@ export function createArenaScene(): Arena {
   scene.add(pylons);
   const pylonEmissive = pylons.material as THREE.MeshStandardMaterial;
 
+  const city = createCity();
+  scene.add(city);
+  const cityEmissive = city.material as THREE.MeshStandardMaterial;
+
+  const laneMarkings = createLaneMarkings();
+  scene.add(laneMarkings);
+
+  const edgeGlow = createEdgeGlow();
+  scene.add(edgeGlow);
+
+  const glints = createLagoonGlints();
+  scene.add(glints);
+
   const traffic = createDanfoTraffic();
   scene.add(traffic.mesh);
+  scene.add(traffic.glassMesh);
+  scene.add(traffic.lightMesh);
 
   return {
     scene,
     water,
     highway,
     pylons,
+    city,
+    laneMarkings,
+    edgeGlow,
+    glints,
     traffic,
     lights: {
       hemi: hemisphere,
       sun,
       ambient,
       pylonEmissive,
+      cityEmissive,
       hemiBase: hemisphere.intensity,
       sunBase: sun.intensity,
       ambientBase: ambient.intensity,
       pylonBase: pylonEmissive.emissiveIntensity,
+      cityBase: cityEmissive.emissiveIntensity,
     },
     applyDuskEnvironment(renderer: THREE.WebGLRenderer): void {
       loadDuskEnvironment(scene, renderer);

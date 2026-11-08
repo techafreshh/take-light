@@ -8,16 +8,23 @@ export const BLACKOUT_MIN_LIGHT = 0.28;
 /** Fraction of base emissive kept at the darkest wave (wave 10 -> 0.35). */
 export const BLACKOUT_MIN_EMISSIVE = 0.35;
 
-/** Live light handles applyBlackout may scale; tracer materials excluded. */
+/**
+ * Live light handles applyBlackout may scale; tracer materials excluded.
+ * Unlit MeshBasicMaterial dressing (lane dashes, edge glow, lagoon
+ * glints, danfo light bars) is never passed in, so it stays readable
+ * late-run exactly like the railgun tracers.
+ */
 export interface BlackoutLights {
   hemi?: { intensity: number } | null;
   sun?: { intensity: number } | null;
   ambient?: { intensity: number } | null;
   pylonEmissive?: { emissiveIntensity: number } | null;
+  cityEmissive?: { emissiveIntensity: number } | null;
   hemiBase?: number;
   sunBase?: number;
   ambientBase?: number;
   pylonBase?: number;
+  cityBase?: number;
 }
 
 /** JSON-serializable light state for a wave. */
@@ -128,6 +135,10 @@ export function applyBlackout(
   if (lights.pylonEmissive !== undefined && lights.pylonEmissive !== null) {
     const base = resolveEmissiveBase(lights.pylonEmissive, lights.pylonBase);
     lights.pylonEmissive.emissiveIntensity = base * state.emissiveScale;
+  }
+  if (lights.cityEmissive !== undefined && lights.cityEmissive !== null) {
+    const base = resolveEmissiveBase(lights.cityEmissive, lights.cityBase);
+    lights.cityEmissive.emissiveIntensity = base * state.emissiveScale;
   }
   return state;
 }

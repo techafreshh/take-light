@@ -212,4 +212,28 @@ describe('blackout curve', () => {
     expect(lights.sun.intensity).toBeCloseTo(1.6, 10);
     expect(lights.pylonEmissive.emissiveIntensity).toBeCloseTo(0.7, 10);
   });
+
+  it('dims the city emissive idempotently and restores it at wave 1', () => {
+    const lights = {
+      pylonEmissive: { emissiveIntensity: 1.4 },
+      cityEmissive: { emissiveIntensity: 1.4 },
+    };
+    const first = applyBlackout(lights, 10);
+    expect(lights.cityEmissive.emissiveIntensity).toBeCloseTo(
+      1.4 * first.emissiveScale,
+      10,
+    );
+    expect(lights.pylonEmissive.emissiveIntensity).toBeCloseTo(
+      1.4 * first.emissiveScale,
+      10,
+    );
+    const second = applyBlackout(lights, 10);
+    expect(second).toEqual(first);
+    expect(lights.cityEmissive.emissiveIntensity).toBeCloseTo(
+      1.4 * first.emissiveScale,
+      10,
+    );
+    applyBlackout(lights, 1);
+    expect(lights.cityEmissive.emissiveIntensity).toBeCloseTo(1.4, 10);
+  });
 });
