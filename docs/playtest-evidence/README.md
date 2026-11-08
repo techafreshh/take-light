@@ -8,13 +8,13 @@ the filed issues references the image that proves it.
 |---|------|---------------|
 | 01 | `01-menu-1280.png` | Menu at 1280px. Clean, readable. |
 | 02 | `02-menu-1080p.png` | Menu at 1920×1080. Panel tiny vs screen; sticks visible on desktop. |
-| 03 | `03-gameplay-start.png` | Run start, HUD (score ×1, W1, 3 shield pips), ship glow, empty arena. |
+| 03 | `03-gameplay-start.png` | Run start @1920×1080, HUD (score ×1, W1, 3 shield pips): window-lit tower crescent flanks the lagoon highway, dashes + cyan/magenta curbs legible, danfo vans with head/taillights cruise the strip, pink pylons bloom. Water + highway + city edge read in one frame. |
 | 04 | `04-gameover-idle.png` | Idle death: Wave 2, Score 0, Kills 0, tick 1972. Name entry + Save/Restart/Menu. |
 | 05 | `05-save-0-score.png` | Save accepted a 0-score run: "Best saved: Techa", leaderboard #1 = 0 pts. |
 | 06 | `06-idle-death.png` | Second idle run: same Wave 2 / 0-kill death (tick 1652). Doubled experiment. |
 | 07 | `07-combat-400.png` | Held-key + hold-fire bot: tracers flying, score 400, ship moving. Combat gun works. |
 | 08 | `08-bot-death-w2.png` | Same bot died anyway: Wave 2, 4 kills, shields 0, fps 39. Damage-in outpaces evasion + firepower. |
-| 09 | `09-wave9-blackout.png` | Forced wave 9 (`__TAKELIGHT_SETWAVE__(9)`, HUD W9): world dimmed, telegraphs indistinguishable from tracers. |
+| 09 | `09-wave9-blackout.png` | Forced wave 9 @1280px (`__TAKELIGHT_SETWAVE__(9)`, HUD W9): tower windows + pylons dim with the blackout curve while dashes, curbs, and danfo light bars persist — blackout payoff reads against surviving neon. |
 | 10 | `10-portrait-gameover.png` | iPhone portrait Game Over: text overflows panel edge-to-edge, sticks bleed off screen. |
 | 11 | `11-portrait-menu.png` | iPhone portrait Menu: "Rotate … to play" clipped both sides; title overflows. |
 | 12 | `12-telegraph-swell.png` | Post-fix (#60): sim frozen mid-telegraph (probe read `areaboy:telegraph` at capture) — swelled 1.3× charge glow distinct from ship glow, railgun tracers in flight, W1 with 3 shields. Frozen via Escape the instant the probe saw `telegraph`; pause menu hidden for the photo. |
