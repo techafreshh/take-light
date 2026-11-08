@@ -19,6 +19,7 @@ import {
   blackoutForWave,
   emissiveScaleForWave,
   lightIntensityForWave,
+  normalizeBlackoutWave,
 } from './blackout';
 
 describe('director determinism', () => {
@@ -235,5 +236,21 @@ describe('blackout curve', () => {
     );
     applyBlackout(lights, 1);
     expect(lights.cityEmissive.emissiveIntensity).toBeCloseTo(1.4, 10);
+  });
+});
+
+describe('wave agreement', () => {
+  it('normalizeWave and normalizeBlackoutWave agree on waves 1..12', () => {
+    for (let wave = 1; wave <= 12; wave += 1) {
+      expect(normalizeBlackoutWave(wave)).toBe(normalizeWave(wave));
+    }
+    for (const bad of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ]) {
+      expect(normalizeWave(bad)).toBe(1);
+      expect(normalizeBlackoutWave(bad)).toBe(1);
+    }
   });
 });

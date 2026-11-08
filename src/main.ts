@@ -108,6 +108,12 @@ import {
 import { bulletHitsEnemy, damageEnemy, isGraze } from './game/combat';
 import { normalizeWave, planWave, type WavePlan } from './game/director';
 import {
+  clearTelegraphMarkers,
+  createTelegraphField,
+  syncTelegraphMarkers,
+} from './game/telegraph';
+import { formatWave } from './ui/hud';
+import {
   applyBlackout,
   blackoutForWave,
   type BlackoutState,
@@ -246,6 +252,22 @@ function boot(): void {
   // Wave director probes: WAVEPLAN delegates to the pure seeded planner
   // (side-effect-free); SETWAVE clamps, applies the blackout synchronously
   // in the same task, and mirrors wave + light state for the probes.
+  // Single-source wave publishing: the HUD bridge, the probe mirror,
+  // and the GAMEOVER summary all read currentWave through this exact
+  // snapshot. Function-declared so setWave (above its deps) can call
+  // it; every call site runs after boot init, never during it.
+  function publishHud(): void {
+    hudStore.push({
+      score: scoreState.score,
+      multiplier: scoreState.multiplier,
+      kills: scoreState.kills,
+      wave: currentWave,
+      shields: player.shields,
+      maxShields: MAX_SHIELDS,
+      dashCooldownMs: Math.ceil(player.dashCooldownMsLeft),
+      dashCooldownMaxMs: DASH_COOLDOWN_MS,
+    });
+  }
   function setWave(wave: number): number {
     currentWave = normalizeWave(wave);
     waveElapsedMs = 0;
@@ -259,6 +281,7 @@ function boot(): void {
         lightIntensity: currentLight.lightIntensity,
       };
     }
+    publishHud();
     return currentWave;
   }
   window.__TAKELIGHT_WAVEPLAN__ = (seed: number, wave: number): WavePlan =>
@@ -367,6 +390,10 @@ function boot(): void {
   const bullets = createBulletField();
   scene.add(bullets.mesh);
   scene.add(bullets.muzzle);
+  // Blackout-exempt telegraph rings: unlit markers the blackout curve
+  // never touches, synced every render to the telegraphing enemies.
+  const telegraphs = createTelegraphField();
+  scene.add(telegraphs.mesh);
   const weapon = createWeapon();
   const onFire: () => void = () => {
     playSfx(audioBank, 'shot', 0);
@@ -582,6 +609,9 @@ function boot(): void {
 
   function checkGameOver(): void {
     if (player.shields <= 0 && store.get() === 'RUNNING') {
+      // Mirror the live wave into the HUD bridge before the GAMEOVER
+      // summary and the saved PbEntry read it.
+      publishHud();
       store.set('GAMEOVER');
     }
   }
@@ -784,6 +814,7 @@ function boot(): void {
       }
       syncBulletMeshes(bullets);
       syncEnemyMeshes(enemies);
+      syncTelegraphMarkers(telegraphs, enemies);
       syncOrbMeshes(orbs);
       syncPickupMeshes(pickups);
       // Shooter spin-up: live telegraphers yaw with time in state.
@@ -846,16 +877,7 @@ function boot(): void {
         score: scoreState.score,
         multiplier: scoreState.multiplier,
       };
-      hudStore.push({
-        score: scoreState.score,
-        multiplier: scoreState.multiplier,
-        kills: scoreState.kills,
-        wave: currentWave,
-        shields: player.shields,
-        maxShields: MAX_SHIELDS,
-        dashCooldownMs: Math.ceil(player.dashCooldownMsLeft),
-        dashCooldownMaxMs: DASH_COOLDOWN_MS,
-      });
+      publishHud();
       window.__TAKELIGHT_DASH__ = triggerDash;
       window.__TAKELIGHT_HIT__ = triggerHit;
       window.__TAKELIGHT_GRAZE__ = triggerGraze;
@@ -864,6 +886,7 @@ function boot(): void {
         lastOverlayMs = now;
         overlay.textContent =
           `fps: ${loop.getFps()} tick: ${loop.getTick()} ` +
+          `wave: ${formatWave(currentWave)} ` +
           `dash: ${Math.ceil(player.dashCooldownMsLeft)}ms ` +
           `shields: ${player.shields}`;
         window.__TAKELIGHT_FPS__ = loop.getFps();
@@ -909,6 +932,7 @@ function boot(): void {
       clearBullets(bullets);
       resetWeapon(weapon);
       clearEnemies(enemies);
+      clearTelegraphMarkers(telegraphs);
       clearOrbs(orbs);
       clearPickups(pickups);
       resetScore(scoreState);
