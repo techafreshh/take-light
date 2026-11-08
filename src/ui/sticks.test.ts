@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createTouchStickState, mountSticks } from './sticks';
+import { createTouchStickState, mountSticks, shouldMountTouchControls } from './sticks';
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -163,5 +163,59 @@ describe('mountSticks rect caching', () => {
     unmount();
     expect(document.getElementById('stick-right')).toBeNull();
     protoSpy.mockRestore();
+  });
+});
+
+describe('shouldMountTouchControls', () => {
+  it('mounts on a coarse pointer hint', () => {
+    expect(shouldMountTouchControls({ coarse: true })).toBe(true);
+  });
+
+  it('mounts on touch points', () => {
+    expect(shouldMountTouchControls({ touchPoints: 1 })).toBe(true);
+  });
+
+  it('mounts on legacy ontouchstart', () => {
+    expect(shouldMountTouchControls({ hasTouch: true })).toBe(true);
+  });
+
+  it('stays unmounted when every hint is negative', () => {
+    expect(
+      shouldMountTouchControls({
+        coarse: false,
+        touchPoints: 0,
+        hasTouch: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('stays unmounted by default on a fine-pointer desktop', () => {
+    // jsdom models a touch-capable window (own ontouchstart === null),
+    // so deleting it emulates the fine-pointer desktop live-read path.
+    const w = window as unknown as Record<string, unknown>;
+    const saved = w['ontouchstart'];
+    delete w['ontouchstart'];
+    try {
+      expect(shouldMountTouchControls()).toBe(false);
+    } finally {
+      w['ontouchstart'] = saved;
+    }
+  });
+
+  it('gating pattern leaves #stick-left absent when the predicate is false', () => {
+    document.body.innerHTML = '<div id="root"></div>';
+    // All-false hints emulate the fine-pointer desktop live reads.
+    if (
+      shouldMountTouchControls({
+        coarse: false,
+        touchPoints: 0,
+        hasTouch: false,
+      })
+    ) {
+      mountSticks(createTouchStickState());
+    }
+    expect(document.getElementById('stick-left')).toBeNull();
+    expect(document.getElementById('stick-right')).toBeNull();
+    expect(document.getElementById('dash-btn')).toBeNull();
   });
 });

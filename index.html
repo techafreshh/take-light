@@ -148,6 +148,18 @@
           opacity: 0.9;
         }
       }
+      @media (pointer: fine) {
+        #stick-left,
+        #stick-right,
+        #dash-btn {
+          display: none !important;
+        }
+      }
+      body.has-touch #stick-left,
+      body.has-touch #stick-right,
+      body.has-touch #dash-btn {
+        display: block !important;
+      }
       #menu {
         position: fixed;
         inset: 0;
@@ -334,7 +346,7 @@
         <p>MENU</p>
         <button id="start-btn" type="button">Start</button>
       </div>
-      <div id="dev-overlay">fps: 0 tick: 0</div>
+      <div id="dev-overlay" hidden>fps: 0 tick: 0</div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
