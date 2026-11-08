@@ -24,7 +24,7 @@ function formatMultiplier(multiplier: number): string {
   return `x${multiplier}`;
 }
 
-function formatWave(wave: number): string {
+export function formatWave(wave: number): string {
   return `W${wave}`;
 }
 
