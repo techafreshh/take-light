@@ -15,6 +15,8 @@ export const MAX_SPEED = 14;
 export const DASH_SPEED = 26;
 export const DASH_IFRAMES_MS = 300;
 export const DASH_COOLDOWN_MS = 1200;
+/** Post-hit grace: one volley can cost at most one shield per second. */
+export const HURT_IFRAMES_MS = 1000;
 export const ARENA_HALF = 26;
 export const HOVER_Y = 0.8;
 export const MAX_SHIELDS = 3;
@@ -103,6 +105,7 @@ export function takeHit(player: Player): boolean {
     return false;
   }
   player.shields -= 1;
+  player.iframeMsLeft = HURT_IFRAMES_MS;
   return true;
 }
 

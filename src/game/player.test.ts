@@ -4,6 +4,7 @@ import {
   ARENA_HALF,
   DASH_COOLDOWN_MS,
   DASH_IFRAMES_MS,
+  HURT_IFRAMES_MS,
   MAX_SHIELDS,
   MAX_TILT_RAD,
   createPlayer,
@@ -132,10 +133,37 @@ describe('shields', () => {
   it('three hits exhaust the shield pips', () => {
     const player = createPlayer();
     expect(takeHit(player)).toBe(true);
+    stepTimes(player, Math.ceil(HURT_IFRAMES_MS / STEP_MS) + 1);
     expect(takeHit(player)).toBe(true);
+    stepTimes(player, Math.ceil(HURT_IFRAMES_MS / STEP_MS) + 1);
     expect(takeHit(player)).toBe(true);
     expect(player.shields).toBe(0);
+    stepTimes(player, Math.ceil(HURT_IFRAMES_MS / STEP_MS) + 1);
     expect(takeHit(player)).toBe(false);
+  });
+
+  it('a second hit inside the hurt window deals no damage', () => {
+    const player = createPlayer();
+    expect(takeHit(player)).toBe(true);
+    expect(player.shields).toBe(MAX_SHIELDS - 1);
+    expect(takeHit(player)).toBe(false);
+    expect(player.shields).toBe(MAX_SHIELDS - 1);
+  });
+
+  it('a hit after the hurt window lands again', () => {
+    const player = createPlayer();
+    expect(takeHit(player)).toBe(true);
+    stepTimes(player, Math.ceil(HURT_IFRAMES_MS / STEP_MS) + 1);
+    expect(takeHit(player)).toBe(true);
+    expect(player.shields).toBe(MAX_SHIELDS - 2);
+  });
+
+  it('snapshot is invulnerable during the hurt window', () => {
+    const player = createPlayer();
+    expect(takeHit(player)).toBe(true);
+    expect(toPlayerSnapshot(player).invulnerable).toBe(true);
+    stepTimes(player, Math.ceil(HURT_IFRAMES_MS / STEP_MS) + 1);
+    expect(toPlayerSnapshot(player).invulnerable).toBe(false);
   });
 
   it('hits during i-frames deal no damage', () => {

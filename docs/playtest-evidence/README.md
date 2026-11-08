@@ -17,6 +17,8 @@ the filed issues references the image that proves it.
 | 09 | `09-wave9-blackout.png` | Forced wave 9 (`__TAKELIGHT_SETWAVE__(9)`, HUD W9): world dimmed, telegraphs indistinguishable from tracers. |
 | 10 | `10-portrait-gameover.png` | iPhone portrait Game Over: text overflows panel edge-to-edge, sticks bleed off screen. |
 | 11 | `11-portrait-menu.png` | iPhone portrait Menu: "Rotate … to play" clipped both sides; title overflows. |
+| 12 | `12-telegraph-swell.png` | Post-fix (#60): sim frozen mid-telegraph (probe read `areaboy:telegraph` at capture) — swelled 1.3× charge glow distinct from ship glow, railgun tracers in flight, W1 with 3 shields. Frozen via Escape the instant the probe saw `telegraph`; pause menu hidden for the photo. |
+| 13 | `13-bot-wave3.png` | Post-fix (#60): orbit-strafe + aimed-autofire bot (held keys, sweeping/aimed mouse fire, periodic dash via `eval` dispatch) — Wave 3, score 1550, 2 shields. Reaches W3 with shields to spare. |
 
 ## Reproduction (agent-browser)
 1. `npm run dev -- --port 5174 --host 127.0.0.1 --strictPort`

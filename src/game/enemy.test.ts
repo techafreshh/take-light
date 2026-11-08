@@ -4,8 +4,10 @@ import { damageEnemy } from './combat';
 import { planWave } from './director';
 import {
   IDLE_MS,
+  TELEGRAPH_SCALE,
   createEnemyManager,
   spawnEnemy,
+  syncEnemyMeshes,
   updateEnemies,
 } from './enemy';
 import {
@@ -184,6 +186,48 @@ describe('damage', () => {
     const enemy = spawnEnemy(manager, 'okada', OKADA_PARAMS, 5, 0);
     expect(damageEnemy(enemy, 2)).toBe(true);
     expect(damageEnemy(enemy, 1)).toBe(false);
+  });
+});
+
+describe('telegraph scale pop', () => {
+  it('swells the mesh while telegraphing', () => {
+    const manager = createEnemyManager();
+    const enemy = spawnEnemy(manager, 'okada', OKADA_PARAMS, 5, 0);
+    expect(stepToTelegraph(manager, PLAYER)).toBeGreaterThan(0);
+    expect(enemy.state).toBe('telegraph');
+    syncEnemyMeshes(manager);
+    expect(enemy.mesh?.scale.x).toBeCloseTo(TELEGRAPH_SCALE, 10);
+    expect(enemy.mesh?.scale.y).toBeCloseTo(TELEGRAPH_SCALE, 10);
+    expect(enemy.mesh?.scale.z).toBeCloseTo(TELEGRAPH_SCALE, 10);
+  });
+
+  it('returns to scale 1 on dive', () => {
+    const manager = createEnemyManager();
+    const enemy = spawnEnemy(manager, 'okada', OKADA_PARAMS, 5, 0);
+    expect(stepToTelegraph(manager, PLAYER)).toBeGreaterThan(0);
+    const telegraphSteps = Math.round(OKADA_TELEGRAPH_MS / STEP_MS);
+    for (let i = 0; i < telegraphSteps; i += 1) {
+      updateEnemies(manager, PLAYER, STEP_MS);
+    }
+    expect(enemy.state).toBe('dive');
+    syncEnemyMeshes(manager);
+    expect(enemy.mesh?.scale.x).toBe(1);
+    expect(enemy.mesh?.scale.y).toBe(1);
+    expect(enemy.mesh?.scale.z).toBe(1);
+  });
+
+  it('recycled pool slots respawn at scale 1', () => {
+    const manager = createEnemyManager(undefined, 1);
+    const first = spawnEnemy(manager, 'okada', OKADA_PARAMS, 5, 0);
+    expect(stepToTelegraph(manager, PLAYER)).toBeGreaterThan(0);
+    syncEnemyMeshes(manager);
+    expect(first.mesh?.scale.x).toBeCloseTo(TELEGRAPH_SCALE, 10);
+    // Capacity 1: the next spawn recycles the same swelled slot.
+    const second = spawnEnemy(manager, 'okada', OKADA_PARAMS, 8, 0);
+    expect(second).toBe(first);
+    expect(second.mesh?.scale.x).toBe(1);
+    expect(second.mesh?.scale.y).toBe(1);
+    expect(second.mesh?.scale.z).toBe(1);
   });
 });
 
