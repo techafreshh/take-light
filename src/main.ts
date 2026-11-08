@@ -27,7 +27,8 @@ import {
   sampleMouseAim,
   type InputFrame,
 } from './game/input';
-import { createTouchStickState, mountSticks } from './ui/sticks';
+import { createTouchStickState, mountSticks, shouldMountTouchControls } from './ui/sticks';
+import { shouldShowDebugOverlay } from './ui/debug';
 import { createElementRectCache } from './ui/rectCache';
 import {
   ARENA_HALF,
@@ -233,6 +234,14 @@ function boot(): void {
   const canvas = getCanvas();
   const menu = getMenu();
   const overlay = getOverlay();
+  // Dev overlay is hidden in production unless `?debug` is present;
+  // the dev server always shows it. Probe publishes below stay
+  // unconditional — only the pixels are gated.
+  const showDebugOverlay = shouldShowDebugOverlay(
+    window.location.search,
+    import.meta.env.DEV,
+  );
+  overlay.hidden = !showDebugOverlay;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   configureRenderer(renderer);
@@ -519,8 +528,33 @@ function boot(): void {
   let lastPublishedFiring = false;
   let latchedFiring = false;
   // Touch drive: twin sticks + dash button mutate this frame in place.
+  // Fine-pointer desktops never mount them; the first real touch (or
+  // touch pointerdown) late-mounts once for hybrid touchscreen laptops.
   const touch = createTouchStickState();
-  mountSticks(touch);
+  let unmountSticks: (() => void) | null = null;
+  function mountLateSticks(): void {
+    if (unmountSticks !== null) {
+      return;
+    }
+    unmountSticks = mountSticks(touch);
+    document.body.classList.add('has-touch');
+    window.removeEventListener('touchstart', mountLateSticks);
+    window.removeEventListener('pointerdown', mountLateOnTouchPointer);
+  }
+  function mountLateOnTouchPointer(event: Event): void {
+    if ((event as PointerEvent).pointerType !== 'touch') {
+      return;
+    }
+    mountLateSticks();
+  }
+  if (shouldMountTouchControls()) {
+    mountLateSticks();
+  } else {
+    window.addEventListener('touchstart', mountLateSticks, {
+      passive: true,
+    });
+    window.addEventListener('pointerdown', mountLateOnTouchPointer);
+  }
   // Cached canvas rect: the canvas is position:fixed, so its geometry only
   // changes on viewport events. readFrame runs ~120/sec (sim steps plus
   // every render), so it must not force synchronous layout per call.
@@ -884,11 +918,13 @@ function boot(): void {
       const now = performance.now();
       if (now - lastOverlayMs >= 250) {
         lastOverlayMs = now;
-        overlay.textContent =
-          `fps: ${loop.getFps()} tick: ${loop.getTick()} ` +
-          `wave: ${formatWave(currentWave)} ` +
-          `dash: ${Math.ceil(player.dashCooldownMsLeft)}ms ` +
-          `shields: ${player.shields}`;
+        if (showDebugOverlay) {
+          overlay.textContent =
+            `fps: ${loop.getFps()} tick: ${loop.getTick()} ` +
+            `wave: ${formatWave(currentWave)} ` +
+            `dash: ${Math.ceil(player.dashCooldownMsLeft)}ms ` +
+            `shields: ${player.shields}`;
+        }
         window.__TAKELIGHT_FPS__ = loop.getFps();
         window.__TAKELIGHT_SCENE__ = {
           pylonCount: PYLON_COUNT,

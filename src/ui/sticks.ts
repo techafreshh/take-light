@@ -29,6 +29,63 @@ export function createTouchStickState(): InputFrame {
   return { ...EMPTY_INPUT };
 }
 
+/** Hint overrides for tests/probes; defaults read the live device. */
+export interface TouchHints {
+  coarse?: boolean;
+  touchPoints?: number;
+  hasTouch?: boolean;
+}
+
+/**
+ * Pure touch-capability check: coarse pointer OR touch points OR legacy
+ * ontouchstart. Explicit hints bypass the DOM reads so tests can drive
+ * the matrix without a device.
+ */
+export function shouldMountTouchControls(hints: TouchHints = {}): boolean {
+  let coarse: boolean;
+  if (hints.coarse !== undefined) {
+    coarse = hints.coarse;
+  } else if (
+    typeof window === 'undefined' ||
+    typeof window.matchMedia !== 'function'
+  ) {
+    coarse = false;
+  } else {
+    try {
+      coarse = window.matchMedia('(pointer: coarse)').matches;
+    } catch {
+      coarse = false;
+    }
+  }
+  let touchPoints: number;
+  if (hints.touchPoints !== undefined) {
+    touchPoints = hints.touchPoints;
+  } else {
+    try {
+      const nav = (
+        globalThis as unknown as { navigator?: { maxTouchPoints?: unknown } }
+      ).navigator;
+      const raw = nav?.maxTouchPoints;
+      touchPoints = typeof raw === 'number' ? raw : 0;
+    } catch {
+      touchPoints = 0;
+    }
+  }
+  let hasTouch: boolean;
+  if (hints.hasTouch !== undefined) {
+    hasTouch = hints.hasTouch;
+  } else if (typeof window === 'undefined') {
+    hasTouch = false;
+  } else {
+    try {
+      hasTouch = 'ontouchstart' in window;
+    } catch {
+      hasTouch = false;
+    }
+  }
+  return coarse || touchPoints > 0 || hasTouch;
+}
+
 function createZone(id: string): { zone: HTMLElement; knob: HTMLElement } {
   const zone = document.createElement('div');
   zone.id = id;
