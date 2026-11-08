@@ -30,11 +30,15 @@
         display: none;
         position: fixed;
         inset: 0;
-        z-index: 15;
+        z-index: 30;
         align-items: center;
         justify-content: center;
-        padding: env(safe-area-inset-top) env(safe-area-inset-right)
-          env(safe-area-inset-bottom) env(safe-area-inset-left);
+        box-sizing: border-box;
+        max-width: 100vw;
+        padding: max(env(safe-area-inset-top), 12px)
+          max(env(safe-area-inset-right), 16px)
+          max(env(safe-area-inset-bottom), 12px)
+          max(env(safe-area-inset-left), 16px);
         color: #f5ecff;
         background: rgba(20, 16, 42, 0.85);
         font-family: system-ui, sans-serif;
@@ -43,9 +47,27 @@
         text-align: center;
         pointer-events: none;
       }
+      #portrait-notice .portrait-card {
+        box-sizing: border-box;
+        max-width: min(90vw, 26rem);
+        min-width: 0;
+        padding: 1.25rem 1.5rem;
+        border: 1px solid rgba(245, 236, 255, 0.22);
+        border-radius: 12px;
+        background: rgba(16, 10, 38, 0.7);
+        text-wrap: balance;
+        overflow-wrap: anywhere;
+      }
       @media (orientation: portrait) {
         #portrait-notice {
           display: flex;
+        }
+        #menu,
+        #stick-left,
+        #stick-right,
+        #dash-btn,
+        #hud {
+          display: none !important;
         }
       }
       #root {
@@ -135,10 +157,48 @@
         align-items: center;
         justify-content: center;
         gap: 0.5rem;
+        box-sizing: border-box;
+        max-width: 100vw;
+        padding: max(env(safe-area-inset-top), 12px)
+          max(env(safe-area-inset-right), 16px)
+          max(env(safe-area-inset-bottom), 12px)
+          max(env(safe-area-inset-left), 16px);
         color: #f5ecff;
         font-family: system-ui, sans-serif;
         text-align: center;
         pointer-events: none;
+      }
+      #menu .panel {
+        box-sizing: border-box;
+        width: 100%;
+        max-width: min(calc(100vw - 32px), 28rem);
+        min-width: 0;
+      }
+      #menu .panel > * {
+        min-width: 0;
+        max-width: 100%;
+      }
+      #go-summary {
+        letter-spacing: normal;
+        text-align: center;
+        text-wrap: balance;
+        overflow-wrap: anywhere;
+        max-width: 100%;
+      }
+      #leaderboard {
+        max-width: 100%;
+        padding-inline: 0.5rem;
+        box-sizing: border-box;
+        overflow-wrap: anywhere;
+      }
+      #menu form {
+        max-width: 100%;
+        box-sizing: border-box;
+      }
+      #menu input {
+        max-width: 100%;
+        box-sizing: border-box;
+        width: min(100%, 16rem);
       }
       #menu h1 {
         margin: 0;
@@ -163,6 +223,41 @@
         border: none;
         border-radius: 999px;
         cursor: pointer;
+      }
+      @media (max-height: 430px) and (orientation: landscape) {
+        #stick-left,
+        #stick-right {
+          width: 96px;
+          height: 96px;
+          bottom: calc(8px + env(safe-area-inset-bottom));
+        }
+        #stick-left {
+          left: calc(8px + env(safe-area-inset-left));
+        }
+        #stick-right {
+          right: calc(8px + env(safe-area-inset-right));
+        }
+        #dash-btn {
+          width: 64px;
+          height: 64px;
+          right: calc(112px + env(safe-area-inset-right));
+          bottom: calc(8px + env(safe-area-inset-bottom));
+        }
+        #hud {
+          gap: 4px 8px;
+          padding: 4px 8px;
+          font-size: 12px;
+        }
+        #menu {
+          gap: 0.25rem;
+        }
+        #menu .panel {
+          padding: 0.75rem 1rem;
+          gap: 0.25rem;
+        }
+        #menu h1 {
+          font-size: 1.25rem;
+        }
       }
       #dev-overlay {
         position: fixed;
@@ -232,7 +327,7 @@
     <div id="root">
       <canvas id="game-canvas"></canvas>
       <div id="portrait-notice" role="note">
-        Rotate your device to landscape to play take-light
+        <div class="portrait-card">Rotate your device to landscape to play take-light</div>
       </div>
       <div id="menu" data-state="BOOT">
         <h1>take-light</h1>
