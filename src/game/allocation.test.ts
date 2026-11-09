@@ -3,7 +3,7 @@
 // fixed, live lists stay bounded, and SoA array refs never churn — the
 // traffic.test.ts zero-allocation style.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { STEP_MS } from './loop';
 import {
   ENEMY_CAPACITY,
@@ -76,6 +76,12 @@ describe('fight-window allocation audit', () => {
       },
     };
 
+    // Copy detectors: the pre-fix updateOrbs/updatePickups called
+    // field.live.slice() every step while keeping the array itself stable,
+    // so ref-stability asserts alone cannot pin the fix. Fail on the copy.
+    const enemySliceSpy = vi.spyOn(enemies.live, 'slice');
+    const orbSliceSpy = vi.spyOn(orbs.live, 'slice');
+    const pickupSliceSpy = vi.spyOn(pickups.live, 'slice');
     const enemyLiveRef = enemies.live;
     const orbLiveRef = orbs.live;
     const pickupLiveRef = pickups.live;
@@ -109,6 +115,14 @@ describe('fight-window allocation audit', () => {
     expect(enemies.live.length).toBeLessThanOrEqual(ENEMY_CAPACITY);
     expect(orbs.live.length).toBeLessThanOrEqual(ORB_CAPACITY);
     expect(pickups.live.length).toBeLessThanOrEqual(PICKUP_CAPACITY);
+
+    // No per-step copies: the hot loop never slices a live list.
+    expect(enemySliceSpy).not.toHaveBeenCalled();
+    expect(orbSliceSpy).not.toHaveBeenCalled();
+    expect(pickupSliceSpy).not.toHaveBeenCalled();
+    enemySliceSpy.mockRestore();
+    orbSliceSpy.mockRestore();
+    pickupSliceSpy.mockRestore();
 
     // Array refs stable: no per-step list or buffer reallocation.
     expect(enemies.live).toBe(enemyLiveRef);

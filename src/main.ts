@@ -449,6 +449,10 @@ function boot(): void {
   function applyQualityTier(next: QualityTier): void {
     currentTier = next;
     lowFpsWindows = 0;
+    // Dispose the outgoing composer (GPU targets + bloom mips) before
+    // the handle is overwritten; tier swaps happen after sustained low
+    // fps or a manual override, never per frame.
+    currentPostfx?.dispose();
     currentPostfx = createPostFX(renderer, scene, camera, {}, next);
     sizeRenderer(
       renderer,
