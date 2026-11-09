@@ -8,10 +8,15 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RENDERER_MAX_DPR, capDpr } from './scene';
+import type { QualityTier } from './quality';
 
 export const BLOOM_STRENGTH = 0.55;
 export const BLOOM_RADIUS = 0.4;
 export const BLOOM_THRESHOLD = 0.85;
+/** Reduced bloom strength for the balanced tier (half-res pass). */
+export const BLOOM_STRENGTH_BALANCED = 0.35;
+/** Balanced bloom target scale relative to the composer buffer. */
+export const BLOOM_BALANCED_SCALE = 0.5;
 
 /** DPR cap shared with configureRenderer. */
 export const POSTFX_MAX_DPR = RENDERER_MAX_DPR;
@@ -54,6 +59,7 @@ export interface PostFX {
   setSize(width: number, height: number): void;
   setPixelRatio(dpr: number): void;
   render(): void;
+  dispose(): void;
 }
 
 /**
@@ -65,11 +71,13 @@ export function createPostFX(
   scene: THREE.Scene,
   camera: THREE.Camera,
   hints: PostFXHints = {},
+  tier: QualityTier = 'high',
 ): PostFX | null {
   const { width, coarse } = readHints(hints);
-  if (shouldDisableBloom(width, coarse)) {
+  if (tier === 'performance' || shouldDisableBloom(width, coarse)) {
     return null;
   }
+  const balanced = tier === 'balanced';
   try {
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
@@ -77,24 +85,59 @@ export function createPostFX(
       window.innerWidth,
       window.innerHeight,
     );
+    if (balanced) {
+      size.multiplyScalar(0.5);
+    }
     const bloom = new UnrealBloomPass(
       size,
-      BLOOM_STRENGTH,
+      balanced ? BLOOM_STRENGTH_BALANCED : BLOOM_STRENGTH,
       BLOOM_RADIUS,
       BLOOM_THRESHOLD,
     );
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
-    composer.setPixelRatio(capDpr(window.devicePixelRatio));
+    // addPass/composer.setSize always push the FULL effective buffer size
+    // into every pass, so the halved constructor size above is overwritten
+    // immediately. Track the viewport/DPR here and re-scale only the bloom
+    // target after every composer resize, keeping the rest full-res.
+    let viewWidth = window.innerWidth;
+    let viewHeight = window.innerHeight;
+    let currentDpr = capDpr(window.devicePixelRatio);
+    const syncBloomSize = (): void => {
+      if (!balanced) {
+        return;
+      }
+      bloom.setSize(
+        Math.max(
+          1,
+          Math.round(viewWidth * currentDpr * BLOOM_BALANCED_SCALE),
+        ),
+        Math.max(
+          1,
+          Math.round(viewHeight * currentDpr * BLOOM_BALANCED_SCALE),
+        ),
+      );
+    };
+    composer.setPixelRatio(currentDpr);
+    syncBloomSize();
     return {
       setSize(width: number, height: number): void {
+        viewWidth = width;
+        viewHeight = height;
         composer.setSize(width, height);
+        syncBloomSize();
       },
       setPixelRatio(dpr: number): void {
-        composer.setPixelRatio(capDpr(dpr));
+        currentDpr = capDpr(dpr);
+        composer.setPixelRatio(currentDpr);
+        syncBloomSize();
       },
       render(): void {
         composer.render();
+      },
+      dispose(): void {
+        bloom.dispose();
+        composer.dispose();
       },
     };
   } catch {

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { store, type GameState } from './app/state';
-import { hudStore } from './ui/store';
+import { hudStore, type HudSnapshot } from './ui/store';
 import { mountHud } from './ui/hud';
 import { mountMenus, type MenusHandle, type PbEntry } from './ui/menus';
 import {
@@ -18,8 +18,21 @@ import { CAMERA_PITCH_DEG, addShake, createFollowCamera, createShake, shakeOffse
 import { createArenaScene, configureRenderer, sizeRenderer } from './game/scene';
 import { clampPan, createAudioBank, playSfx, toAudioProbe, unlockAudio } from './game/audio';
 import { createPostFX, type PostFX } from './game/postfx';
+import {
+  FPS_STEP_DOWN,
+  bloomForTier,
+  effectiveDprForTier,
+  qualityForViewport,
+  shouldStepDown,
+  stepDownTier,
+  type QualityTier,
+} from './game/quality';
 import { mountEffects, spawnDamageNumber, spawnHitMarker } from './ui/effects';
-import { PYLON_COUNT, updateDanfoTraffic } from './game/props';
+import {
+  PYLON_COUNT,
+  advanceDanfoTraffic,
+  syncTrafficMeshes,
+} from './game/props';
 import { getAssetModels, readHeapBytes } from './game/assets';
 import { STEP_MS, createFixedLoop, consumeHitstop, createHitstop, triggerHitstop } from './game/loop';
 import {
@@ -175,6 +188,12 @@ declare global {
     };
     __TAKELIGHT_FORCE_FIRE__?: boolean;
     __TAKELIGHT_SET_FIRING__?: (on: boolean) => void;
+    __TAKELIGHT_QUALITY__?: {
+      tier: string;
+      dpr: number;
+      bloom: boolean;
+    };
+    __TAKELIGHT_SET_QUALITY__?: (tier: QualityTier) => QualityTier;
     __TAKELIGHT_SPAWN__?: (kind: string) => number;
     __TAKELIGHT_KILL__?: (kind: string) => number;
     __TAKELIGHT_AUDIO__?: { unlocked: boolean; sfxCount: number };
@@ -267,8 +286,11 @@ function boot(): void {
   // and the GAMEOVER summary all read currentWave through this exact
   // snapshot. Function-declared so setWave (above its deps) can call
   // it; every call site runs after boot init, never during it.
+  // Change-gated HUD bridge: idle frames (and repeated snapshots) skip
+  // the store push entirely, so the HUD path allocates nothing per frame.
+  let lastPushedHud: HudSnapshot | null = null;
   function publishHud(): void {
-    hudStore.push({
+    const next: HudSnapshot = {
       score: scoreState.score,
       multiplier: scoreState.multiplier,
       kills: scoreState.kills,
@@ -277,7 +299,23 @@ function boot(): void {
       maxShields: MAX_SHIELDS,
       dashCooldownMs: Math.ceil(player.dashCooldownMsLeft),
       dashCooldownMaxMs: DASH_COOLDOWN_MS,
-    });
+    };
+    const prev = lastPushedHud;
+    if (
+      prev !== null &&
+      prev.score === next.score &&
+      prev.multiplier === next.multiplier &&
+      prev.kills === next.kills &&
+      prev.wave === next.wave &&
+      prev.shields === next.shields &&
+      prev.maxShields === next.maxShields &&
+      prev.dashCooldownMs === next.dashCooldownMs &&
+      prev.dashCooldownMaxMs === next.dashCooldownMaxMs
+    ) {
+      return;
+    }
+    lastPushedHud = next;
+    hudStore.push(next);
   }
   function setWave(wave: number): number {
     currentWave = normalizeWave(wave);
@@ -383,15 +421,69 @@ function boot(): void {
     void flushThenRefetch();
   });
   void fetchAndPushBoard();
-  const postfx: PostFX | null = createPostFX(renderer, scene, camera);
+  // Quality tier: detected once from the viewport, then stepped down
+  // only after sustained sub-floor fps (never up, no oscillation). The
+  // tier caps effective DPR and gates bloom; applyQualityTier re-runs
+  // sizeRenderer and swaps the composer (the render branch below already
+  // covers both the composer and the direct fallback).
+  const coarsePointer =
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches;
+  const detectedTier = qualityForViewport(window.innerWidth, coarsePointer);
+  let currentTier: QualityTier = detectedTier;
+  let lowFpsWindows = 0;
+  function publishQualityProbe(): void {
+    window.__TAKELIGHT_QUALITY__ = {
+      tier: currentTier,
+      dpr: effectiveDprForTier(currentTier, window.devicePixelRatio),
+      bloom: bloomForTier(currentTier),
+    };
+  }
+  let currentPostfx: PostFX | null = createPostFX(
+    renderer,
+    scene,
+    camera,
+    {},
+    detectedTier,
+  );
+  function applyQualityTier(next: QualityTier): void {
+    currentTier = next;
+    lowFpsWindows = 0;
+    // Dispose the outgoing composer (GPU targets + bloom mips) before
+    // the handle is overwritten; tier swaps happen after sustained low
+    // fps or a manual override, never per frame.
+    currentPostfx?.dispose();
+    currentPostfx = createPostFX(renderer, scene, camera, {}, next);
+    sizeRenderer(
+      renderer,
+      camera,
+      window.innerWidth,
+      window.innerHeight,
+      effectiveDprForTier(next, window.devicePixelRatio),
+      currentPostfx,
+    );
+    publishQualityProbe();
+  }
   sizeRenderer(
     renderer,
     camera,
     window.innerWidth,
     window.innerHeight,
-    window.devicePixelRatio,
-    postfx,
+    effectiveDprForTier(detectedTier, window.devicePixelRatio),
+    currentPostfx,
   );
+  publishQualityProbe();
+  window.__TAKELIGHT_SET_QUALITY__ = (tier: QualityTier): QualityTier => {
+    const raw = tier as string;
+    const next: QualityTier =
+      raw === 'performance'
+        ? 'performance'
+        : raw === 'balanced'
+          ? 'balanced'
+          : 'high';
+    applyQualityTier(next);
+    return next;
+  };
 
   // Kinematic hover player owned here; the sim core stays DOM-free.
   const player = createPlayer();
@@ -692,9 +784,9 @@ function boot(): void {
       if (consumeHitstop(hitstop, stepMs)) {
         return;
       }
-      // Danfo traffic cruises on the same fixed quantum (render does no
-      // traffic work: matrices are already current from this step).
-      updateDanfoTraffic(traffic, STEP_MS);
+      // Danfo traffic advances on the same fixed quantum; matrices
+      // compose once per render in syncTrafficMeshes below.
+      advanceDanfoTraffic(traffic, STEP_MS);
       // Timed wave auto-progression: the current plan's durationMs gates
       // the next setWave + spawn so waves 1..10 elapse ~4 minutes live.
       waveElapsedMs += stepMs;
@@ -853,6 +945,8 @@ function boot(): void {
       } else {
         updateFollowCamera(camera, player.pos, shakeOff.x, shakeOff.y);
       }
+      // Traffic matrices compose once per render; sim steps only advance.
+      syncTrafficMeshes(traffic);
       syncBulletMeshes(bullets);
       syncEnemyMeshes(enemies);
       syncTelegraphMarkers(telegraphs, enemies);
@@ -925,14 +1019,32 @@ function boot(): void {
       const now = performance.now();
       if (now - lastOverlayMs >= 250) {
         lastOverlayMs = now;
+        // Adaptive step-down at overlay cadence: sustained sub-floor fps
+        // drops one tier, never up. Zero fps means no window elapsed yet
+        // (warm-up), so it neither counts nor clears the streak.
+        const fps = loop.getFps();
+        if (fps > 0 && fps < FPS_STEP_DOWN) {
+          lowFpsWindows += 1;
+          if (shouldStepDown(lowFpsWindows)) {
+            const next = stepDownTier(currentTier);
+            if (next !== currentTier) {
+              applyQualityTier(next);
+            } else {
+              lowFpsWindows = 0;
+            }
+          }
+        } else if (fps >= FPS_STEP_DOWN) {
+          lowFpsWindows = 0;
+        }
         if (showDebugOverlay) {
           overlay.textContent =
-            `fps: ${loop.getFps()} tick: ${loop.getTick()} ` +
+            `fps: ${fps} tick: ${loop.getTick()} ` +
             `wave: ${formatWave(currentWave)} ` +
             `dash: ${Math.ceil(player.dashCooldownMsLeft)}ms ` +
             `shields: ${player.shields}`;
         }
-        window.__TAKELIGHT_FPS__ = loop.getFps();
+        window.__TAKELIGHT_FPS__ = fps;
+        publishQualityProbe();
         window.__TAKELIGHT_SCENE__ = {
           pylonCount: PYLON_COUNT,
           cameraPitchDeg: CAMERA_PITCH_DEG,
@@ -941,8 +1053,8 @@ function boot(): void {
           lightIntensity: currentLight.lightIntensity,
         };
       }
-      if (postfx !== null) {
-        postfx.render();
+      if (currentPostfx !== null) {
+        currentPostfx.render();
       } else {
         renderer.render(scene, camera);
       }
@@ -970,6 +1082,14 @@ function boot(): void {
         waveSeed = 42;
       }
       loop.resetTick();
+      // Fresh run: HUD gate, fps streak, and quality all restart from
+      // the detected tier (manual override re-applies from the probe).
+      lastPushedHud = null;
+      if (currentTier !== detectedTier) {
+        applyQualityTier(detectedTier);
+      }
+      lowFpsWindows = 0;
+      publishQualityProbe();
       window.__TAKELIGHT_TICK__ = 0;
       resetPlayer(player);
       clearBullets(bullets);
@@ -1103,8 +1223,8 @@ function boot(): void {
       camera,
       window.innerWidth,
       window.innerHeight,
-      window.devicePixelRatio,
-      postfx,
+      effectiveDprForTier(currentTier, window.devicePixelRatio),
+      currentPostfx,
     );
     canvasRectCache.refresh();
   });
