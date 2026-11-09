@@ -50,6 +50,8 @@ npm run preview -- --port 5173 --strictPort  # serve dist/ like deploy
 | `RUSH_HOUR_MS` | 10000 | every 4th wave swarm window |
 | `RUSH_EVERY_WAVES` / `RUSH_BONUS_OKADA` | 4 / 6 | cost-free Okada swarm |
 | `budgetForWave(w)` | `4 + w * 2` | wave 1 → 6, wave 10 → 24 |
+| `MAX_AREABOY_WAVE_2` / `MAX_CARRIER_WAVE_2` | 1 / 0 | wave-2 shooter cap: worst-case volley 3 orbs |
+| `MAX_AREABOY_WAVE_3` / `MAX_CARRIER_WAVE_3` | 1 / 1 | wave-3 shooter cap: worst-case volley 8 orbs; waves 4+ uncapped |
 | `BLACKOUT_MIN_LIGHT` | 0.28 | `lightIntensityForWave(10)` |
 | `BLACKOUT_MIN_EMISSIVE` | 0.35 | emissive floor at wave 10 |
 | `OKADA_TELEGRAPH_MS` | 450 | ≥400 ms visible + audible |
