@@ -87,12 +87,46 @@ function weightOf(kind: 'okada' | 'areaboy' | 'carrier'): number {
   return 5;
 }
 
+/** Max AreaBoy shooters fielded on wave 2 (early-orb-density cap). */
+export const MAX_AREABOY_WAVE_2 = 1;
+/** Max Danfo Carrier heavies fielded on wave 2 (none unlocked yet). */
+export const MAX_CARRIER_WAVE_2 = 0;
+/** Max AreaBoy shooters fielded on wave 3 (early-orb-density cap). */
+export const MAX_AREABOY_WAVE_3 = 1;
+/** Max Danfo Carrier heavies fielded on wave 3 (early-orb-density cap). */
+export const MAX_CARRIER_WAVE_3 = 1;
+
+/**
+ * Max copies of a kind allowed on a wave. Okadas stay uncapped so spend
+ * remains maximal; waves 4+ stay uncapped. Guaranteed placements already
+ * comply (wave 2: 1 areaboy / 0 carriers; wave 3: 1 of each), so only the
+ * weighted-fill loop needs the filter.
+ */
+function capForWave(
+  wave: number,
+  kind: 'okada' | 'areaboy' | 'carrier',
+): number {
+  if (kind === 'okada') {
+    return Number.POSITIVE_INFINITY;
+  }
+  if (wave === 2) {
+    return kind === 'areaboy' ? MAX_AREABOY_WAVE_2 : MAX_CARRIER_WAVE_2;
+  }
+  if (wave === 3) {
+    return kind === 'areaboy' ? MAX_AREABOY_WAVE_3 : MAX_CARRIER_WAVE_3;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
 /**
  * Deterministic plan for one wave. The per-wave stream is seeded from
  * (seed ^ wave * 0x9E3779B9), so plans are independent across waves and
  * stable across calls. Each unlocked kind (wave 1: Okada; wave 2+:
  * AreaBoy; wave 3+: Carrier) is guaranteed one slot when affordable,
  * then the remainder is weighted-filled without exceeding the budget.
+ * Waves 2-3 cap simultaneous shooters (wave 2: at most 1 AreaBoy and no
+ * Carriers; wave 3: at most 1 of each) so early orb density stays
+ * survivable; Okadas fill the leftover budget and waves 4+ are uncapped.
  * Rush Hour bonus Okadas ride on top, cost-free.
  */
 export function planWave(seed: number, wave: number): WavePlan {
@@ -136,7 +170,20 @@ export function planWave(seed: number, wave: number): WavePlan {
   while (guard > 0) {
     guard -= 1;
     const remaining = budget - spent;
-    const affordable = unlocked.filter((kind) => costOf(kind) <= remaining);
+    const countOf = (kind: 'okada' | 'areaboy' | 'carrier'): number => {
+      if (kind === 'areaboy') {
+        return areaboy;
+      }
+      if (kind === 'carrier') {
+        return carrier;
+      }
+      return okada;
+    };
+    const affordable = unlocked.filter(
+      (kind) =>
+        costOf(kind) <= remaining &&
+        countOf(kind) < capForWave(normalizedWave, kind),
+    );
     if (affordable.length === 0) {
       break;
     }

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ENEMY_CAPACITY } from './enemy';
+import { BURST_SIZE } from './enemies/areaboy';
+import { SPREAD_COUNT } from './enemies/carrier';
 import {
   AREABOY_COST,
   CARRIER_COST,
@@ -145,6 +147,65 @@ describe('pool fit', () => {
         expect(planTotal(seed, wave)).toBeLessThanOrEqual(ENEMY_CAPACITY);
       }
     }
+  });
+});
+
+describe('early-wave shooter caps', () => {
+  it('wave 2 fields at most 1 AreaBoy and no Carriers', () => {
+    for (let seed = 0; seed < 200; seed += 1) {
+      const plan = planWave(seed, 2);
+      expect(plan.areaboy).toBeLessThanOrEqual(1);
+      expect(plan.carrier).toBe(0);
+      const spent =
+        plan.okada * OKADA_COST +
+        plan.areaboy * AREABOY_COST +
+        plan.carrier * CARRIER_COST;
+      expect(spent).toBeLessThanOrEqual(plan.budget);
+    }
+  });
+
+  it('wave 3 fields at most 1 AreaBoy and at most 1 Carrier', () => {
+    for (let seed = 0; seed < 200; seed += 1) {
+      const plan = planWave(seed, 3);
+      expect(plan.areaboy).toBeLessThanOrEqual(1);
+      expect(plan.carrier).toBeLessThanOrEqual(1);
+      const spent =
+        plan.okada * OKADA_COST +
+        plan.areaboy * AREABOY_COST +
+        plan.carrier * CARRIER_COST;
+      expect(spent).toBeLessThanOrEqual(plan.budget);
+    }
+  });
+
+  it('caps worst-case volley orbs to 3 on wave 2 and 8 on wave 3', () => {
+    for (let seed = 0; seed < 200; seed += 1) {
+      const wave2 = planWave(seed, 2);
+      expect(wave2.areaboy * BURST_SIZE + wave2.carrier * SPREAD_COUNT)
+        .toBeLessThanOrEqual(3);
+      const wave3 = planWave(seed, 3);
+      expect(wave3.areaboy * BURST_SIZE + wave3.carrier * SPREAD_COUNT)
+        .toBeLessThanOrEqual(8);
+    }
+  });
+
+  it('capped plans stay seed-stable', () => {
+    expect(planWave(42, 2)).toEqual(planWave(42, 2));
+    expect(JSON.stringify(planWave(42, 2))).toBe(
+      JSON.stringify(planWave(42, 2)),
+    );
+    expect(planWave(42, 3)).toEqual(planWave(42, 3));
+  });
+
+  it('waves 4+ stay uncapped', () => {
+    let uncapped = false;
+    for (let seed = 0; seed < 200; seed += 1) {
+      const plan = planWave(seed, 5);
+      if (plan.areaboy > 1 || plan.carrier > 1) {
+        uncapped = true;
+        break;
+      }
+    }
+    expect(uncapped).toBe(true);
   });
 });
 
