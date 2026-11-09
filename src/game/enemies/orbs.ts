@@ -172,11 +172,12 @@ export function fireCarrierSpread(
   return offsets.length;
 }
 
-function releaseOrb(field: OrbField, orb: Orb): void {
-  const index = field.live.indexOf(orb);
-  if (index >= 0) {
-    field.live.splice(index, 1);
+function releaseOrbAt(field: OrbField, index: number): void {
+  const orb = field.live[index];
+  if (orb === undefined) {
+    return;
   }
+  field.live.splice(index, 1);
   orb.active = false;
   orb.ttlMs = 0;
   if (orb.mesh !== null) {
@@ -185,18 +186,26 @@ function releaseOrb(field: OrbField, orb: Orb): void {
   field.pool.release(orb);
 }
 
-/** Fixed-step integrate with TTL swap-remove; expired orbs retire. */
+function releaseOrb(field: OrbField, orb: Orb): void {
+  releaseOrbAt(field, field.live.indexOf(orb));
+}
+
+/**
+ * Fixed-step integrate with in-place retire; expired orbs release.
+ * Reverse-index loop with order-preserving splice (the updateBullets
+ * idiom, minus swap-remove so survivor order never changes); no copy.
+ */
 export function updateOrbs(field: OrbField, dtMs: number): void {
   const step = Math.max(dtMs, 0);
   const dt = step / 1000;
-  const live = field.live.slice();
-  for (const orb of live) {
-    if (!orb.active) {
+  for (let i = field.live.length - 1; i >= 0; i -= 1) {
+    const orb = field.live[i];
+    if (orb === undefined || !orb.active) {
       continue;
     }
     orb.ttlMs -= step;
     if (orb.ttlMs <= 0) {
-      releaseOrb(field, orb);
+      releaseOrbAt(field, i);
       continue;
     }
     orb.x += orb.vx * dt;

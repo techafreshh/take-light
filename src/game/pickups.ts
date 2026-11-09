@@ -105,16 +105,21 @@ export function spawnPickup(
   return pickup;
 }
 
-function releasePickup(field: PickupField, pickup: Pickup): void {
-  const index = field.live.indexOf(pickup);
-  if (index >= 0) {
-    field.live.splice(index, 1);
+function releasePickupAt(field: PickupField, index: number): void {
+  const pickup = field.live[index];
+  if (pickup === undefined) {
+    return;
   }
+  field.live.splice(index, 1);
   pickup.active = false;
   if (pickup.mesh !== null) {
     pickup.mesh.visible = false;
   }
   field.pool.release(pickup);
+}
+
+function releasePickup(field: PickupField, pickup: Pickup): void {
+  releasePickupAt(field, field.live.indexOf(pickup));
 }
 
 /**
@@ -130,9 +135,9 @@ export function updatePickups(
 ): number {
   const step = Math.max(dtMs, 0);
   let collected = 0;
-  const live = field.live.slice();
-  for (const pickup of live) {
-    if (!pickup.active) {
+  for (let i = field.live.length - 1; i >= 0; i -= 1) {
+    const pickup = field.live[i];
+    if (pickup === undefined || !pickup.active) {
       continue;
     }
     pickup.bobMs += step;
@@ -145,7 +150,7 @@ export function updatePickups(
       if (player.shields < MAX_SHIELDS) {
         player.shields = Math.min(MAX_SHIELDS, player.shields + 1);
       }
-      releasePickup(field, pickup);
+      releasePickupAt(field, i);
       collected += 1;
     }
   }

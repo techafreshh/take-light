@@ -8,6 +8,18 @@ export const DAMAGE_TTL_MS = 1200;
 /** Hit markers flash briefly at the impact point. */
 export const MARKER_TTL_MS = 300;
 
+/**
+ * Max live fx nodes: mid-fight kill bursts drop the oldest past this
+ * cap instead of stacking unbounded DOM + timers under bloom.
+ */
+export const FX_MAX_NODES = 24;
+
+function enforceFxCap(layer: HTMLElement): void {
+  while (layer.childElementCount > FX_MAX_NODES) {
+    layer.firstElementChild?.remove();
+  }
+}
+
 export interface EffectsHandle {
   layer: HTMLElement;
   unmount(): void;
@@ -44,6 +56,7 @@ export function spawnDamageNumber(
   element.textContent = text;
   place(element, xPx, yPx);
   handle.layer.appendChild(element);
+  enforceFxCap(handle.layer);
   window.setTimeout(() => {
     element.remove();
   }, DAMAGE_TTL_MS);
@@ -60,6 +73,7 @@ export function spawnHitMarker(
   element.className = 'hit-marker';
   place(element, xPx, yPx);
   handle.layer.appendChild(element);
+  enforceFxCap(handle.layer);
   window.setTimeout(() => {
     element.remove();
   }, MARKER_TTL_MS);

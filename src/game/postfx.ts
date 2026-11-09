@@ -8,10 +8,13 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RENDERER_MAX_DPR, capDpr } from './scene';
+import type { QualityTier } from './quality';
 
 export const BLOOM_STRENGTH = 0.55;
 export const BLOOM_RADIUS = 0.4;
 export const BLOOM_THRESHOLD = 0.85;
+/** Reduced bloom strength for the balanced tier (half-res pass). */
+export const BLOOM_STRENGTH_BALANCED = 0.35;
 
 /** DPR cap shared with configureRenderer. */
 export const POSTFX_MAX_DPR = RENDERER_MAX_DPR;
@@ -65,11 +68,13 @@ export function createPostFX(
   scene: THREE.Scene,
   camera: THREE.Camera,
   hints: PostFXHints = {},
+  tier: QualityTier = 'high',
 ): PostFX | null {
   const { width, coarse } = readHints(hints);
-  if (shouldDisableBloom(width, coarse)) {
+  if (tier === 'performance' || shouldDisableBloom(width, coarse)) {
     return null;
   }
+  const balanced = tier === 'balanced';
   try {
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
@@ -77,9 +82,12 @@ export function createPostFX(
       window.innerWidth,
       window.innerHeight,
     );
+    if (balanced) {
+      size.multiplyScalar(0.5);
+    }
     const bloom = new UnrealBloomPass(
       size,
-      BLOOM_STRENGTH,
+      balanced ? BLOOM_STRENGTH_BALANCED : BLOOM_STRENGTH,
       BLOOM_RADIUS,
       BLOOM_THRESHOLD,
     );

@@ -412,10 +412,11 @@ export function createDanfoTraffic(count: number = DANFO_COUNT): DanfoTraffic {
 
 /**
  * Fixed-step advance: cruise down the highway and wrap at the ends.
- * Recomposes body, glass, and light matrices with module temps only;
- * never allocates.
+ * SoA state only — no matrix work, so sim steps call this per step and
+ * the render callback composes once via syncTrafficMeshes below.
+ * Never allocates.
  */
-export function updateDanfoTraffic(traffic: DanfoTraffic, dtMs: number): void {
+export function advanceDanfoTraffic(traffic: DanfoTraffic, dtMs: number): void {
   const dt = Math.max(dtMs, 0) / 1000;
   const span = DANFO_WRAP_Z * 2;
   for (let i = 0; i < traffic.count; i += 1) {
@@ -426,9 +427,29 @@ export function updateDanfoTraffic(traffic: DanfoTraffic, dtMs: number): void {
       z += span;
     }
     traffic.z[i] = z;
+  }
+}
+
+/**
+ * Compose body, glass, and light matrices once from current SoA state.
+ * Module temps only; never allocates. Called once per render while sim
+ * steps call only advanceDanfoTraffic.
+ */
+export function syncTrafficMeshes(traffic: DanfoTraffic): void {
+  for (let i = 0; i < traffic.count; i += 1) {
     composeDanfoMatrix(traffic, i);
   }
   traffic.mesh.instanceMatrix.needsUpdate = true;
   traffic.glassMesh.instanceMatrix.needsUpdate = true;
   traffic.lightMesh.instanceMatrix.needsUpdate = true;
+}
+
+/**
+ * Fixed-step advance plus one compose: the per-step entry kept so
+ * existing lockstep callers (and traffic.test.ts) still advance and
+ * sync together.
+ */
+export function updateDanfoTraffic(traffic: DanfoTraffic, dtMs: number): void {
+  advanceDanfoTraffic(traffic, dtMs);
+  syncTrafficMeshes(traffic);
 }
